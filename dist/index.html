@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="A system architecture for an adaptive voice tutor for children aged two to three." />
-    <meta name="theme-color" content="#f2f0e9" />
-    <title>Adaptive Voice Tutor Architecture</title>
+    <meta name="description" content="A beginner guide to voice-agent architecture, instrumentation, and evaluation metrics." />
+    <meta name="theme-color" content="#f1efe8" />
+    <title>Voice Agent: Build, Measure, Improve</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap" rel="stylesheet" />
@@ -13,156 +13,224 @@
     <script src="./script.js" defer></script>
   </head>
   <body>
-    <svg class="svg-library" aria-hidden="true">
-      <symbol id="i-child" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3" /><path d="M5 21v-3a7 7 0 0 1 14 0v3M8 13l-3 3m11-3 3 3" /></symbol>
-      <symbol id="i-parent" viewBox="0 0 24 24"><circle cx="12" cy="6" r="3" /><path d="M6 20v-5a6 6 0 0 1 12 0v5M4 10h3m10 0h3" /></symbol>
-      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4.5 5v6c0 5 3 8.5 7.5 11 4.5-2.5 7.5-6 7.5-11V5L12 2Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></symbol>
-      <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 5 6-3 6 3 6-3v17l-6 3-6-3-6 3V5Z" /><path d="M9 2v17m6-14v17" /></symbol>
-      <symbol id="i-teach" viewBox="0 0 24 24"><path d="M4 4h16v12H4zM8 21h8M12 16v5M8 8h8m-8 4h5" /></symbol>
-      <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z" /></symbol>
-      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.5" /></symbol>
-      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V9m6 11V4m6 16v-7m4 7H2" /></symbol>
-      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-5-5 5 5-5 5" /></symbol>
-      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
-    </svg>
-
     <header class="site-header">
-      <a class="brand" href="#top" aria-label="Adaptive Voice Tutor home"><span class="brand-mark" aria-hidden="true"></span><span>GROW / VOICE</span></a>
-      <nav aria-label="Main navigation"><a href="#architecture">Architecture</a><a href="#learner">Learner model</a><a href="#safety">Safety</a><a href="#build">First build</a></nav>
-      <div class="header-index">SYSTEM NOTE · 01</div>
+      <a class="brand" href="#top" aria-label="Voice systems home"><span aria-hidden="true"></span>VOICE / 001</a>
+      <nav aria-label="Main navigation">
+        <a href="#system">System</a>
+        <a href="#timeline">Timeline</a>
+        <a href="#metrics">Metrics</a>
+        <a href="#build">First build</a>
+      </nav>
+      <p>FIELD GUIDE · 2026</p>
     </header>
 
     <main id="top">
-      <section class="hero section-shell">
-        <div class="hero-copy">
-          <p class="eyebrow">ADAPTIVE TUTOR · AGES 2–3</p>
-          <h1>A voice tutor that meets a child where they are.</h1>
-          <p class="hero-lede">The system does more than answer. It estimates what the child can do, selects one small learning step, watches the response, and adapts the next turn.</p>
+      <section class="hero shell">
+        <div>
+          <p class="kicker">VOICE AGENT ENGINEERING · A BEGINNER GUIDE</p>
+          <h1>Build the loop.<br />Measure the wait.</h1>
         </div>
-        <aside class="hero-note" aria-label="Core teaching loop">
-          <p class="note-label">THE IMPORTANT LOOP</p>
-          <div class="loop-words"><span>observe</span><i>→</i><span>estimate</span><i>→</i><span>teach</span><i>→</i><span>check</span><i>→</i><span>adapt</span></div>
-          <p>Hearing and speaking are the interface. The learner model and teaching policy make it a tutor.</p>
+        <div class="hero-copy">
+          <p>A voice agent is a timed event system. It listens, detects a completed turn, decides what to do, and starts the next spoken turn.</p>
+          <p>The agent task can change. The base system and the measurement method stay almost the same.</p>
+          <a class="text-link" href="#build">Start with the smallest version <span>↓</span></a>
+        </div>
+      </section>
+
+      <section class="loop-strip" aria-label="Voice agent runtime loop">
+        <ol class="shell">
+          <li><span>01</span><strong>Listen</strong><small>Microphone audio</small></li>
+          <li><span>02</span><strong>Detect turn</strong><small>Speech starts and stops</small></li>
+          <li><span>03</span><strong>Understand</strong><small>Words and intent</small></li>
+          <li><span>04</span><strong>Decide</strong><small>Reply or tool call</small></li>
+          <li><span>05</span><strong>Act</strong><small>Optional external work</small></li>
+          <li><span>06</span><strong>Speak</strong><small>Audio output</small></li>
+        </ol>
+      </section>
+
+      <section class="section shell" id="system">
+        <div class="section-head">
+          <div><p class="section-number">01 / SYSTEM</p><h2>The base architecture</h2></div>
+          <p>Keep the client, voice session, agent logic, and external tools separate. Add timestamps where data crosses each boundary.</p>
+        </div>
+
+        <div class="architecture" aria-label="Voice agent architecture">
+          <article class="arch-node client">
+            <p class="node-label"><span></span>CLIENT</p>
+            <h3>Microphone + speaker</h3>
+            <p>Captures audio. Plays audio. Shows connection and mute state.</p>
+          </article>
+          <i class="arch-arrow" aria-hidden="true">⇄</i>
+          <article class="arch-node session">
+            <p class="node-label"><span></span>VOICE SESSION</p>
+            <h3>Transport + turn manager</h3>
+            <p>Streams audio. Detects turns. Stops speech when the user interrupts.</p>
+          </article>
+          <i class="arch-arrow" aria-hidden="true">⇄</i>
+          <article class="arch-node runtime">
+            <p class="node-label"><span></span>AGENT RUNTIME</p>
+            <h3>Instructions + state</h3>
+            <p>Chooses a reply. Calls a tool when the task needs external work.</p>
+          </article>
+          <i class="arch-arrow" aria-hidden="true">⇄</i>
+          <article class="arch-node tools">
+            <p class="node-label"><span></span>TOOLS</p>
+            <h3>APIs + data</h3>
+            <p>Reads or changes the application state. Returns a result to the agent.</p>
+          </article>
+          <div class="observer">
+            <p><span>OBSERVABILITY</span> Audio, transcript, events, tool calls, errors, cost, and final state</p>
+          </div>
+        </div>
+
+        <div class="patterns">
+          <div class="pattern-intro">
+            <p class="section-number">TWO IMPLEMENTATION PATTERNS</p>
+            <div class="segmented" role="tablist" aria-label="Implementation pattern">
+              <button class="pattern-button is-active" role="tab" aria-selected="true" data-pattern="chained">Chained</button>
+              <button class="pattern-button" role="tab" aria-selected="false" data-pattern="native">Native speech</button>
+            </div>
+          </div>
+          <article class="pattern-panel" aria-live="polite">
+            <div class="pattern-flow" id="pattern-flow">
+              <span>Audio in</span><i>→</i><span>Speech to text</span><i>→</i><span>Text model</span><i>→</i><span>Text to speech</span><i>→</i><span>Audio out</span>
+            </div>
+            <div class="pattern-notes">
+              <div><small>BEST FOR</small><p id="pattern-best">Learning each stage and inspecting transcripts.</p></div>
+              <div><small>TRADE-OFF</small><p id="pattern-tradeoff">More stages add delay and more failure points.</p></div>
+              <div><small>BEGINNER VIEW</small><p id="pattern-view">Start here if you want to see each component.</p></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="dark-section" id="timeline">
+        <div class="shell">
+          <div class="section-head inverse">
+            <div><p class="section-number">02 / TIMELINE</p><h2>Measure what the user hears</h2></div>
+            <p>Store an event time at each boundary. Use the same clock. Measure an acknowledgment and a useful answer as separate outputs.</p>
+          </div>
+
+          <div class="timeline" aria-label="Voice agent event timeline">
+            <div class="time-axis" aria-hidden="true"></div>
+            <ol>
+              <li style="--x: 4%"><span class="time-event"><span>t0</span><b>speech_started</b></span></li>
+              <li style="--x: 20%"><span class="time-event"><span>t1</span><b>speech_stopped</b></span></li>
+              <li style="--x: 34%"><span class="time-event"><span>t2</span><b>turn_committed</b></span></li>
+              <li style="--x: 49%"><span class="time-event"><span>t3</span><b>model_started</b></span></li>
+              <li style="--x: 66%"><span class="time-event"><span>t4</span><b>first_audio</b></span></li>
+              <li style="--x: 82%"><span class="time-event"><span>t5</span><b>audio_played</b></span></li>
+              <li style="--x: 96%"><span class="time-event"><span>t6</span><b>response_done</b></span></li>
+            </ol>
+          </div>
+
+          <div class="formula-board">
+            <article><small>ENDPOINTING DELAY</small><p><b>t2 − t1</b></p><span>The system waits before it commits the user turn.</span></article>
+            <article class="featured"><small>PERCEIVED RESPONSE LATENCY</small><p><b>t5 − t1</b></p><span>The user stops speaking and then hears the first agent audio.</span></article>
+            <article><small>MODEL + SYNTHESIS</small><p><b>t4 − t3</b></p><span>The agent starts work and produces its first audio.</span></article>
+            <article><small>FULL RESPONSE TIME</small><p><b>t6 − t1</b></p><span>The user stops speaking and the full response ends.</span></article>
+          </div>
+          <p class="percentile-note"><span>P50</span> shows the normal experience. <span>P95</span> shows the slow experience that many users still encounter. Do not report only an average.</p>
+        </div>
+      </section>
+
+      <section class="section shell" id="metrics">
+        <div class="section-head">
+          <div><p class="section-number">03 / SCORECARD</p><h2>The metrics that matter</h2></div>
+          <p>Use one main outcome metric. Add diagnostic metrics that explain why that outcome changed.</p>
+        </div>
+
+        <div class="metric-layout">
+          <div class="metric-tabs" role="tablist" aria-label="Metric categories">
+            <button class="metric-tab is-active" role="tab" aria-selected="true" data-metric="outcome"><span>01</span>Outcome</button>
+            <button class="metric-tab" role="tab" aria-selected="false" data-metric="speed"><span>02</span>Speed</button>
+            <button class="metric-tab" role="tab" aria-selected="false" data-metric="understanding"><span>03</span>Understanding</button>
+            <button class="metric-tab" role="tab" aria-selected="false" data-metric="conversation"><span>04</span>Conversation</button>
+            <button class="metric-tab" role="tab" aria-selected="false" data-metric="reliability"><span>05</span>Reliability</button>
+            <button class="metric-tab" role="tab" aria-selected="false" data-metric="cost"><span>06</span>Cost + safety</button>
+          </div>
+          <article class="metric-panel" aria-live="polite">
+            <div class="metric-title"><p id="metric-index">01 / OUTCOME</p><h3 id="metric-title">Did the agent complete the task?</h3><p id="metric-summary">A natural voice does not prove that the agent worked. Check the final application state and the result that the agent reported.</p></div>
+            <dl id="metric-list">
+              <div><dt>Task completion</dt><dd>Successful tasks ÷ attempted tasks</dd></div>
+              <div><dt>Final-state accuracy</dt><dd>The application contains the intended result</dd></div>
+              <div><dt>Tool accuracy</dt><dd>Correct tool, arguments, and execution order</dd></div>
+              <div><dt>Turns to completion</dt><dd>Conversation turns required for a successful task</dd></div>
+            </dl>
+          </article>
+        </div>
+
+        <aside class="starter-scorecard">
+          <div><p class="section-number">YOUR FIRST SCORECARD</p><h3>Track these six metrics first.</h3></div>
+          <ol>
+            <li><span>01</span>Task completion rate</li>
+            <li><span>02</span>Response latency, P50 and P95</li>
+            <li><span>03</span>No-response rate</li>
+            <li><span>04</span>Unwanted interruption rate</li>
+            <li><span>05</span>Tool-call accuracy</li>
+            <li><span>06</span>Cost per successful task</li>
+          </ol>
         </aside>
       </section>
 
-      <section class="architecture-section section-shell" id="architecture">
-        <div class="section-heading">
-          <div><p class="section-index">01 / BASE ARCHITECTURE</p><h2>Three inputs. Three decision systems. One short activity.</h2></div>
-          <p>Keep the teaching logic separate from the voice model. A model can speak naturally. Your application must control what is taught, how difficulty changes, and what data is retained.</p>
-        </div>
-
-        <div class="system-map" aria-label="Adaptive voice tutor system architecture">
-          <div class="input-column">
-            <article class="map-card child-card">
-              <div class="map-card-head"><svg><use href="#i-child"></use></svg><span>CHILD SIGNALS</span></div>
-              <h3>What happened now</h3>
-              <ul><li>Spoken answer</li><li>Silence or interruption</li><li>Choice or tap</li><li>Time and retries</li></ul>
-            </article>
-            <article class="map-card parent-card">
-              <div class="map-card-head"><svg><use href="#i-parent"></use></svg><span>PARENT SETTINGS</span></div>
-              <h3>What the adult controls</h3>
-              <ul><li>Language and interests</li><li>Approved learning goals</li><li>Session length</li><li>Data and privacy choices</li></ul>
-            </article>
+      <section class="test-section">
+        <div class="shell">
+          <div class="section-head inverse">
+            <div><p class="section-number">04 / EVALUATION</p><h2>Test in three stages</h2></div>
+            <p>Use a fixed scenario set. Run each scenario several times. Change one system factor at a time.</p>
           </div>
-          <div class="map-connector" aria-hidden="true"><span></span><b>→</b></div>
-          <div class="core-column">
-            <article class="core-card safety-core"><span class="core-number">01</span><div class="core-icon"><svg><use href="#i-shield"></use></svg></div><div><p class="core-label">GUARDIAN LAYER</p><h3>Can this interaction happen?</h3><p>Applies parent settings, content rules, session limits, and action permissions.</p></div></article>
-            <article class="core-card learner-core"><span class="core-number">02</span><div class="core-icon"><svg><use href="#i-map"></use></svg></div><div><p class="core-label">LEARNER MODEL</p><h3>What is the child ready for?</h3><p>Tracks skill evidence, confidence, interests, and the current session state.</p></div></article>
-            <article class="core-card policy-core"><span class="core-number">03</span><div class="core-icon"><svg><use href="#i-teach"></use></svg></div><div><p class="core-label">TEACHING POLICY</p><h3>What should happen next?</h3><p>Selects the objective, prompt, scaffold, feedback, and difficulty adjustment.</p></div></article>
+          <div class="test-stages">
+            <article><p>01 · CRAWL</p><h3>Scripted input</h3><p>Test prompts, tool calls, and final state with text or synthetic audio.</p><small>Fast · repeatable · limited realism</small></article>
+            <article><p>02 · WALK</p><h3>Recorded audio</h3><p>Test accents, noise, pauses, names, numbers, and corrections.</p><small>Real audio · fixed inputs</small></article>
+            <article><p>03 · RUN</p><h3>Full conversation</h3><p>Test multi-turn behavior, interruptions, recovery, and task completion.</p><small>Real interaction · more variation</small></article>
           </div>
-          <div class="map-connector" aria-hidden="true"><span></span><b>→</b></div>
-          <div class="output-column">
-            <article class="activity-card">
-              <div class="activity-head"><svg><use href="#i-play"></use></svg><span>MICRO-ACTIVITY</span></div>
-              <h3>One prompt.<br />One response.</h3>
-              <div class="activity-example"><span>TUTOR</span><p>“Can you find the red circle?”</p></div>
-              <div class="activity-example"><span>CHILD</span><p>Voice, tap, gesture, or no response.</p></div>
-            </article>
-          </div>
-          <div class="evidence-return" aria-hidden="true"><span>OBSERVED EVIDENCE RETURNS TO THE LEARNER MODEL</span><i></i><b>↩</b></div>
+          <div class="failure-record"><span>KEEP FOR EACH FAILED RUN</span><p>Audio + transcript + event timeline + tool events + final application state</p></div>
         </div>
       </section>
 
-      <section class="loop-section">
-        <div class="section-shell">
-          <div class="section-heading inverse"><div><p class="section-index">02 / ADAPTIVE LOOP</p><h2>The next turn depends on the last one.</h2></div><p>Select a stage to see what the system decides. Each stage produces a small, testable output.</p></div>
-          <div class="loop-board">
-            <div class="loop-tabs" role="group" aria-label="Adaptive teaching stages">
-              <button class="loop-tab is-active" data-stage="observe" aria-pressed="true"><span>01</span><svg><use href="#i-eye"></use></svg><b>Observe</b></button>
-              <button class="loop-tab" data-stage="estimate" aria-pressed="false"><span>02</span><svg><use href="#i-chart"></use></svg><b>Estimate</b></button>
-              <button class="loop-tab" data-stage="choose" aria-pressed="false"><span>03</span><svg><use href="#i-map"></use></svg><b>Choose</b></button>
-              <button class="loop-tab" data-stage="teach" aria-pressed="false"><span>04</span><svg><use href="#i-teach"></use></svg><b>Teach</b></button>
-              <button class="loop-tab" data-stage="check" aria-pressed="false"><span>05</span><svg><use href="#i-check"></use></svg><b>Check</b></button>
-              <button class="loop-tab" data-stage="adapt" aria-pressed="false"><span>06</span><svg><use href="#i-arrow"></use></svg><b>Adapt</b></button>
-            </div>
-            <article class="loop-inspector" aria-live="polite">
-              <div><p class="inspector-label" id="loop-label">01 · OBSERVE</p><h3 id="loop-title">Collect evidence without judging too quickly.</h3><p id="loop-description">Record the answer, response type, delay, retry count, and current activity. One response is evidence. It is not a permanent label.</p></div>
-              <dl><div><dt>INPUT</dt><dd id="loop-input">Child response + activity context</dd></div><div><dt>OUTPUT</dt><dd id="loop-output">Structured observation event</dd></div><div><dt>RULE</dt><dd id="loop-rule">Keep raw evidence separate from skill estimates</dd></div></dl>
-            </article>
-          </div>
+      <section class="section shell" id="build">
+        <div class="section-head">
+          <div><p class="section-number">05 / FIRST BUILD</p><h2>Build one thin path</h2></div>
+          <p>Do not start with phone calls, many tools, or a large prompt. First, prove that one browser session can hear and answer.</p>
+        </div>
+        <div class="build-grid">
+          <ol class="build-steps">
+            <li><span>01</span><div><h3>Open one voice session</h3><p>Connect the browser with WebRTC or a WebSocket. Show connect, mute, and stop controls.</p></div></li>
+            <li><span>02</span><div><h3>Complete one spoken turn</h3><p>Send microphone audio. Detect the turn end. Play the agent audio.</p></div></li>
+            <li><span>03</span><div><h3>Add one safe tool</h3><p>Use a read-only tool such as weather or a small local lookup.</p></div></li>
+            <li><span>04</span><div><h3>Add event timestamps</h3><p>Record the timeline events shown above. Calculate P50 and P95.</p></div></li>
+            <li><span>05</span><div><h3>Create ten test scenarios</h3><p>Include silence, noise, interruption, a name, a number, and one tool failure.</p></div></li>
+          </ol>
+          <aside class="build-aside">
+            <p class="section-number">MINIMUM COMPONENTS</p>
+            <dl>
+              <div><dt>Browser</dt><dd>Microphone, speaker, and controls</dd></div>
+              <div><dt>Small server</dt><dd>API secret or short-lived client token</dd></div>
+              <div><dt>Voice API</dt><dd>Native speech, or STT + model + TTS</dd></div>
+              <div><dt>Event log</dt><dd>Times, transcript, tool result, and error</dd></div>
+              <div><dt>Test set</dt><dd>Ten fixed scenarios with expected results</dd></div>
+            </dl>
+            <p class="aside-rule">The first useful output is a measured conversation. It is not a complete product.</p>
+          </aside>
         </div>
       </section>
 
-      <section class="learner-section section-shell" id="learner">
-        <div class="section-heading"><div><p class="section-index">03 / LEARNER MODEL</p><h2>Track capabilities as evidence, not labels.</h2></div><p>The learner model is a small data structure. It stores a skill estimate and confidence for each domain. It does not diagnose development.</p></div>
-        <div class="learner-layout">
-          <div class="domain-table" role="table" aria-label="Learner model domains">
-            <div class="domain-row domain-head" role="row"><span>DOMAIN</span><span>WHAT YOU OBSERVE</span><span>STATE</span></div>
-            <div class="domain-row" role="row"><div><i class="dot blue"></i><b>Receptive language</b></div><p>Follows one-step prompts. Identifies familiar objects.</p><span class="state-chip">skill + confidence</span></div>
-            <div class="domain-row" role="row"><div><i class="dot violet"></i><b>Expressive language</b></div><p>Uses sounds, words, short phrases, or another response mode.</p><span class="state-chip">skill + confidence</span></div>
-            <div class="domain-row" role="row"><div><i class="dot amber"></i><b>Early concepts</b></div><p>Matches colors, shapes, quantities, animals, or familiar actions.</p><span class="state-chip">skill + confidence</span></div>
-            <div class="domain-row" role="row"><div><i class="dot green"></i><b>Interaction pattern</b></div><p>Response mode, useful wait time, repetition needs, and interests.</p><span class="state-chip">session context</span></div>
-          </div>
-          <aside class="learner-rule"><p class="aside-label">UPDATE RULE</p><div class="rule-equation"><span>prior state</span><i>+</i><span>new evidence</span><i>→</i><span>small update</span></div><p>Never make a large capability change from one answer. Use repeated, varied evidence across sessions.</p></aside>
-        </div>
-      </section>
-
-      <section class="decision-section">
-        <div class="section-shell">
-          <div class="section-heading inverse compact"><div><p class="section-index">04 / TEACHING POLICY</p><h2>One observation can create different next turns.</h2></div></div>
-          <div class="scenario-shell">
-            <div class="scenario-prompt"><span>TUTOR PROMPT</span><p>“Which one is the cat?”</p></div>
-            <div class="scenario-tabs" role="tablist" aria-label="Child response scenarios">
-              <button class="scenario-tab is-active" role="tab" aria-selected="true" data-scenario="correct">Correct answer</button>
-              <button class="scenario-tab" role="tab" aria-selected="false" data-scenario="silence">No response</button>
-              <button class="scenario-tab" role="tab" aria-selected="false" data-scenario="retry">Repeated mismatch</button>
-            </div>
-            <article class="scenario-result" aria-live="polite">
-              <div class="decision-path"><div><span>OBSERVE</span><p id="scenario-observe">Child selects the cat.</p></div><i>→</i><div><span>ESTIMATE</span><p id="scenario-estimate">Positive evidence for animal matching.</p></div><i>→</i><div><span>NEXT TURN</span><p id="scenario-next">Confirm, then vary the example.</p></div></div>
-              <blockquote id="scenario-voice">“Yes, that is the cat. Can you find another cat?”</blockquote>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="safety-section section-shell" id="safety">
-        <div class="section-heading"><div><p class="section-index">05 / CHILD SAFETY</p><h2>The guardian layer is part of the architecture.</h2></div><p>This product is for very young children. Safety, parent control, and minimal data collection are system requirements, not later additions.</p></div>
-        <div class="safety-grid">
-          <article><span>01</span><svg><use href="#i-parent"></use></svg><h3>Adult remains in control</h3><p>Parent setup, visible session state, stop control, and simple progress summaries.</p></article>
-          <article><span>02</span><svg><use href="#i-shield"></use></svg><h3>Bounded content</h3><p>Use reviewed activity templates. Limit open-ended generation and external tools.</p></article>
-          <article><span>03</span><svg><use href="#i-chart"></use></svg><h3>No diagnosis</h3><p>Describe observed learning evidence. Do not make medical or developmental conclusions.</p></article>
-          <article><span>04</span><svg><use href="#i-eye"></use></svg><h3>Minimum necessary data</h3><p>Prefer structured events over stored recordings. Give parents retention controls.</p></article>
-        </div>
-      </section>
-
-      <section class="build-section" id="build">
-        <div class="section-shell">
-          <div class="section-heading inverse"><div><p class="section-index">06 / FIRST BUILD</p><h2>Prove the adaptive loop before building a curriculum.</h2></div><p>Start with one learning domain, three activities, and three difficulty levels. Make the decision path visible in logs.</p></div>
-          <div class="mvp-grid">
-            <div class="mvp-plan"><ol>
-              <li><span>01</span><div><h3>Pick one skill</h3><p>Example: match red, blue, and yellow.</p></div></li>
-              <li><span>02</span><div><h3>Create reviewed templates</h3><p>Use fixed prompts, choices, hints, and feedback.</p></div></li>
-              <li><span>03</span><div><h3>Store evidence events</h3><p>Answer, delay, retries, scaffold used, and outcome.</p></div></li>
-              <li><span>04</span><div><h3>Implement three adaptations</h3><p>Easier, same level with variation, or one step harder.</p></div></li>
-            </ol></div>
-            <aside class="mvp-stack"><p class="aside-label">MINIMUM TECHNICAL STACK</p><div><span>CLIENT</span><b>Mic, speaker, two or three large visual choices</b></div><div><span>VOICE SESSION</span><b>Gemini Live free tier or a local pipeline</b></div><div><span>ORCHESTRATOR</span><b>Teaching policy, safety checks, activity state</b></div><div><span>STORAGE</span><b>Child profile, evidence events, parent settings</b></div><div><span>PARENT VIEW</span><b>Goals, controls, and plain-language session summary</b></div></aside>
-          </div>
-          <div class="not-yet"><p>NOT IN VERSION ONE</p><span>Open web access</span><span>Multiple agents</span><span>Automatic diagnosis</span><span>Unlimited conversation</span><span>Voice recording archive</span></div>
+      <section class="sources shell" aria-labelledby="sources-title">
+        <p class="section-number">06 / REFERENCES</p>
+        <h2 id="sources-title">Primary guidance</h2>
+        <div>
+          <a href="https://developers.openai.com/api/docs/guides/voice-agents" target="_blank" rel="noreferrer">OpenAI voice-agent guide <span>↗</span></a>
+          <a href="https://developers.openai.com/cookbook/examples/audio/voice_agent_evaluation" target="_blank" rel="noreferrer">OpenAI voice-agent evaluation guide <span>↗</span></a>
+          <a href="https://developers.openai.com/api/docs/guides/realtime" target="_blank" rel="noreferrer">OpenAI Realtime API guide <span>↗</span></a>
+          <a href="https://docs.livekit.io/agents/ops/logging/" target="_blank" rel="noreferrer">LiveKit metrics and logging <span>↗</span></a>
         </div>
       </section>
     </main>
 
-    <footer><div class="footer-mark"><span></span> GROW / VOICE</div><p>Observe → estimate → choose → teach → check → adapt.</p><a href="#top">BACK TO TOP ↑</a></footer>
+    <footer class="site-footer">
+      <p><span></span> VOICE / 001</p>
+      <p>Build → instrument → test → improve.</p>
+      <a href="#top">Back to top ↑</a>
+    </footer>
   </body>
 </html>
