@@ -67,6 +67,7 @@ function renderTraceTimeline(run) {
 
 function App() {
   const [state, setState] = useState({ kind: "idle" });
+  const [modelName, setModelName] = useState(MODEL_NAME);
   const [history, setHistory] = useState({ kind: "loading", runs: [], summary: null });
   const [historyVersion, setHistoryVersion] = useState(0);
   const [selectedRunId, setSelectedRunId] = useState(null);
@@ -103,7 +104,7 @@ function App() {
   async function transcribe(blob, recordingMs, requestId) {
     setState({ kind: "transcribing" });
     try {
-      const result = await transcribeAudio(blob, recordingMs, requestId);
+      const result = await transcribeAudio(blob, recordingMs, requestId, modelName);
       const run = {
         id: result.run_id,
         trace_id: result.trace_id,
@@ -188,7 +189,7 @@ function App() {
       <header>
         <span aria-hidden="true" />
         <p>VOICE / LOCAL</p>
-        <small>WHISPER {MODEL_NAME.toUpperCase()}</small>
+        <small>WHISPER {modelName.toUpperCase()}</small>
       </header>
 
       <section className="panel">
@@ -201,6 +202,13 @@ function App() {
           <div className={`status ${isRecording ? "recording" : ""}`} aria-live="polite">
             <span aria-hidden="true" />{status}
           </div>
+          <label className="model-choice">
+            <span>Model</span>
+            <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={isRecording || isTranscribing}>
+              <option value="base.en">Base.en · faster</option>
+              <option value="small.en">Small.en · more accurate</option>
+            </select>
+          </label>
           <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isTranscribing}>
             {isRecording ? "Stop and transcribe" : isTranscribing ? "Working…" : "Start recording"}
           </button>

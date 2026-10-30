@@ -6,7 +6,7 @@ async function readResponse(response, fallbackMessage) {
   return body;
 }
 
-export async function transcribeAudio(blob, recordingMs, requestId) {
+export async function transcribeAudio(blob, recordingMs, requestId, model) {
   const started = performance.now();
   const response = await fetch(`${API_URL}/api/transcriptions`, {
     method: "POST",
@@ -14,6 +14,7 @@ export async function transcribeAudio(blob, recordingMs, requestId) {
       "Content-Type": blob.type || "application/octet-stream",
       "X-Recording-Duration-Ms": String(recordingMs),
       "X-Request-ID": requestId,
+      "X-Whisper-Model": model,
     },
     body: blob,
   });

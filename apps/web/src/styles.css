@@ -52,6 +52,10 @@ header small { margin-left: auto; color: var(--muted); }
 .status { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
 .status span { width: 8px; height: 8px; background: #76746e; }
 .status.recording span { background: var(--red); box-shadow: 0 0 0 5px rgb(165 56 50 / 15%); }
+.model-choice { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; margin-bottom: 10px; }
+.model-choice span { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
+.model-choice select { width: 100%; padding: 10px 30px 10px 10px; border: 1px solid var(--line); border-radius: 2px; background: transparent; color: var(--ink); cursor: pointer; }
+.model-choice select:disabled { cursor: not-allowed; opacity: .55; }
 .control > button, .reference button { border: 1px solid var(--ink); border-radius: 2px; background: var(--ink); color: white; cursor: pointer; }
 .control > button { width: 100%; padding: 17px 20px; text-align: left; }
 .control button:hover:not(:disabled), .reference button:hover:not(:disabled) { background: #353535; }

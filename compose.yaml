@@ -3,11 +3,17 @@ services:
     build:
       context: ./apps/api
     environment:
+      DEFAULT_WHISPER_MODEL: small.en
       RUNS_DB_PATH: /app/data/runs.db
-      WHISPER_MODEL_PATH: /app/models/ggml-small.en.bin
     ports:
       - "8001:8001"
     volumes:
+      - type: bind
+        source: ./apps/api/models/ggml-base.en.bin
+        target: /app/models/ggml-base.en.bin
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ./apps/api/models/ggml-small.en.bin
         target: /app/models/ggml-small.en.bin

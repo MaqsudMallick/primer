@@ -17,7 +17,14 @@ from app import runs
 from app.observability import log_metric
 
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
-MODEL_PATH = Path(os.getenv("WHISPER_MODEL_PATH", Path(__file__).parents[1] / "models" / "ggml-small.en.bin"))
+MODEL_DIR = Path(os.getenv("WHISPER_MODEL_DIR", Path(__file__).parents[1] / "models"))
+MODEL_PATHS = {
+    "base.en": MODEL_DIR / "ggml-base.en.bin",
+    "small.en": MODEL_DIR / "ggml-small.en.bin",
+}
+DEFAULT_WHISPER_MODEL = os.getenv("DEFAULT_WHISPER_MODEL", "small.en")
+if DEFAULT_WHISPER_MODEL not in MODEL_PATHS:
+    raise RuntimeError("DEFAULT_WHISPER_MODEL must be base.en or small.en.")
 
 
 class TranscriptionMetrics(BaseModel):
@@ -103,7 +110,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Content-Type", "X-Recording-Duration-Ms", "X-Request-ID"],
+    allow_headers=["Content-Type", "X-Recording-Duration-Ms", "X-Request-ID", "X-Whisper-Model"],
 )
 
 
@@ -203,6 +210,10 @@ async def transcribe(
         int | None,
         Header(alias="X-Recording-Duration-Ms", ge=0, le=300_000),
     ] = None,
+    whisper_model: Annotated[
+        Literal["base.en", "small.en"],
+        Header(alias="X-Whisper-Model"),
+    ] = DEFAULT_WHISPER_MODEL,
 ) -> TranscriptionResponse:
     request_id = client_request_id or uuid4().hex
     trace_id = uuid4().hex
@@ -217,6 +228,7 @@ async def transcribe(
     transcription_ms = 0
     run_status = "failed"
     text = ""
+    model_path = MODEL_PATHS[whisper_model]
 
     try:
         with measured_span(spans, stage, started, trace_id, root_span_id):
@@ -228,8 +240,8 @@ async def transcribe(
         with measured_span(spans, stage, started, trace_id, root_span_id):
             ffmpeg = require_local_tool("ffmpeg")
             whisper = require_local_tool("whisper-cli")
-            if not MODEL_PATH.is_file():
-                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The Whisper model is not installed.")
+            if not model_path.is_file():
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"The {whisper_model} model is not installed.")
 
         with TemporaryDirectory(prefix="voice-agent-") as directory:
             workdir = Path(directory)
@@ -254,7 +266,7 @@ async def transcribe(
             stage = "speech.transcribe"
             with measured_span(spans, stage, started, trace_id, root_span_id):
                 subprocess.run(
-                    [whisper, "-m", MODEL_PATH, "-f", wav, "-l", "en", "-ng", "-nt", "-otxt", "-of", output],
+                    [whisper, "-m", model_path, "-f", wav, "-l", "en", "-ng", "-nt", "-otxt", "-of", output],
                     check=True,
                     capture_output=True,
                     timeout=120,
@@ -316,7 +328,7 @@ async def transcribe(
             total_ms=total_ms,
             audio_bytes=audio_bytes,
             media_type=media_type,
-            model=MODEL_PATH.name,
+            model=model_path.name,
             execution="cpu",
             transcript_characters=len(text) if run_status == "completed" else None,
             transcript=text if run_status == "completed" else None,
@@ -337,7 +349,7 @@ async def transcribe(
         request_id=request_id,
         audio_bytes=audio_bytes,
         media_type=media_type,
-        model=MODEL_PATH.name,
+        model=model_path.name,
         execution="cpu",
         transcript_characters=len(text),
         **metrics.model_dump(),
@@ -346,7 +358,7 @@ async def transcribe(
         run_id=stored_run_id,
         trace_id=trace_id,
         request_id=request_id,
-        model=MODEL_PATH.name,
+        model=model_path.name,
         text=text,
         metrics=metrics,
         spans=spans,
