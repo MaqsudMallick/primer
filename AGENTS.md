@@ -23,3 +23,5 @@ These rules apply to all files in this repository. A more specific `AGENTS.md` f
 ## Validation
 
 Run the validation commands in the nearest scoped `AGENTS.md` file.
+
+Run `docker compose config` after a Docker configuration change.

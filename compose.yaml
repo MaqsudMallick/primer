@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: ./apps/api
+    ports:
+      - "8001:8001"
+    volumes:
+      - type: bind
+        source: ./apps/api/models/ggml-base.en.bin
+        target: /app/models/ggml-base.en.bin
+        read_only: true
+        bind:
+          create_host_path: false
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        VITE_API_URL: http://localhost:8001
+    depends_on:
+      - api
+    ports:
+      - "5173:80"

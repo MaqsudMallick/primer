@@ -2,6 +2,26 @@
 
 This project records one browser audio turn and transcribes it with local Whisper.
 
+## Run both applications with Docker
+
+Install Docker Desktop. Confirm that this model file exists:
+
+```text
+apps/api/models/ggml-base.en.bin
+```
+
+Run this command from the repository root:
+
+```sh
+docker compose up --build
+```
+
+Open `http://localhost:5173`. The API runs at `http://localhost:8001`.
+
+The first build compiles `whisper.cpp`. Later builds use the Docker build cache.
+
+Stop both applications with `docker compose down`.
+
 ## Structure
 
 ```text
