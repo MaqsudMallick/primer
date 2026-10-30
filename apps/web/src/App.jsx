@@ -1,13 +1,77 @@
 import { useEffect, useRef, useState } from "react";
 
-import { buildLatencyStages } from "./metrics.js";
+import { fetchRunData, saveReference, transcribeAudio } from "./api.js";
+import { buildLegacySpans, slowestSpan, spanLabel } from "./metrics.js";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8001";
+const MODEL_NAME = import.meta.env.VITE_WHISPER_MODEL ?? "small.en";
+
+function formatMs(value) {
+  return `${Math.round(value)} ms`;
+}
+
+function formatRate(value) {
+  return value == null ? "Not labeled" : `${(value * 100).toFixed(1)}%`;
+}
+
+function renderTraceTimeline(run) {
+  const exact = run.spans?.length > 0;
+  const spans = exact ? run.spans : buildLegacySpans(run);
+  const totalMs = Math.max(run.total_ms, ...spans.map((span) => span.ended_ms), 1);
+  const slowest = slowestSpan(spans);
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+
+  return (
+    <div className="trace" aria-label="Backend trace timeline">
+      <div className="trace-heading">
+        <div>
+          <p className="eyebrow">BACKEND TRACE</p>
+          <small>{exact ? "Exact span timestamps" : "Estimated from duration-only legacy data"}</small>
+        </div>
+        <strong>{formatMs(totalMs)} total</strong>
+      </div>
+      <div className="trace-axis" aria-hidden="true">
+        {ticks.map((tick) => <span key={tick}>{formatMs(totalMs * tick)}</span>)}
+      </div>
+      <div className="trace-track">
+        {spans.map((span, index) => {
+          const isSlowest = span === slowest;
+          const tooltip = `${spanLabel(span.name)} · ${formatMs(span.started_ms)} to ${formatMs(span.ended_ms)} · ${formatMs(span.duration_ms)}`;
+          return (
+            <button
+              className={`trace-span trace-span-${index % 4} ${isSlowest ? "slowest" : ""} ${span.status === "error" ? "span-error" : ""}`}
+              data-tooltip={tooltip}
+              key={span.span_id ?? `${span.name}-${index}`}
+              type="button"
+              style={{
+                left: `${(span.started_ms / totalMs) * 100}%`,
+                width: `${(span.duration_ms / totalMs) * 100}%`,
+              }}
+              aria-label={tooltip}
+            />
+          );
+        })}
+      </div>
+      <ol className="trace-legend">
+        {spans.map((span, index) => (
+          <li key={span.span_id ?? `${span.name}-${index}`}>
+            <span className={`trace-key trace-span-${index % 4} ${span === slowest ? "slowest" : ""}`} aria-hidden="true" />
+            <span>{spanLabel(span.name)}</span>
+            <small>{formatMs(span.started_ms)} → {formatMs(span.ended_ms)}</small>
+            <strong>{formatMs(span.duration_ms)}</strong>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 function App() {
   const [state, setState] = useState({ kind: "idle" });
-  const [history, setHistory] = useState({ kind: "loading", runs: [] });
+  const [history, setHistory] = useState({ kind: "loading", runs: [], summary: null });
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [selectedRunId, setSelectedRunId] = useState(null);
+  const [referenceInput, setReferenceInput] = useState({ runId: null, text: "" });
+  const [referenceStatus, setReferenceStatus] = useState({ kind: "idle" });
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -18,39 +82,53 @@ function App() {
   useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
   useEffect(() => {
     let active = true;
-
-    fetch(`${API_URL}/api/runs`)
-      .then((response) => {
-        if (!response.ok) throw new Error("Run history is unavailable.");
-        return response.json();
+    fetchRunData()
+      .then(({ runs, summary }) => {
+        if (!active) return;
+        setHistory({ kind: "ready", runs, summary });
+        setSelectedRunId((current) => current ?? runs[0]?.id ?? null);
       })
-      .then((runs) => active && setHistory({ kind: "ready", runs }))
-      .catch(() => active && setHistory({ kind: "error", runs: [] }));
-
+      .catch(() => active && setHistory({ kind: "error", runs: [], summary: null }));
     return () => { active = false; };
   }, [historyVersion]);
 
+  const liveRun = state.kind === "success" ? state.run : null;
+  const selectedRun = history.runs.find((run) => run.id === selectedRunId)
+    ?? (liveRun?.id === selectedRunId ? liveRun : null);
+
+  const referenceText = referenceInput.runId === selectedRun?.id
+    ? referenceInput.text
+    : selectedRun?.reference_text ?? "";
+
   async function transcribe(blob, recordingMs, requestId) {
     setState({ kind: "transcribing" });
-    const roundTripStarted = performance.now();
-
     try {
-      const response = await fetch(`${API_URL}/api/transcriptions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": blob.type || "application/octet-stream",
-          "X-Recording-Duration-Ms": String(recordingMs),
-          "X-Request-ID": requestId,
-        },
-        body: blob,
-      });
-      const result = await response.json();
-      const roundTripMs = Math.round(performance.now() - roundTripStarted);
-
-      if (!response.ok) throw new Error(result.detail ?? "Transcription failed.");
-      const metrics = { ...result.metrics, roundTripMs };
-      console.info(JSON.stringify({ event: "transcription.rendered", request_id: result.request_id, ...metrics }));
-      setState({ kind: "success", requestId: result.request_id, text: result.text, metrics });
+      const result = await transcribeAudio(blob, recordingMs, requestId);
+      const run = {
+        id: result.run_id,
+        trace_id: result.trace_id,
+        request_id: result.request_id,
+        created_at: new Date().toISOString(),
+        status: "completed",
+        failure_stage: null,
+        model: result.model,
+        transcript: result.text,
+        reference_text: null,
+        word_errors: null,
+        reference_words: null,
+        word_error_rate: null,
+        recording_ms: result.metrics.recording_ms,
+        request_read_ms: result.metrics.request_read_ms,
+        conversion_ms: result.metrics.conversion_ms,
+        transcription_ms: result.metrics.transcription_ms,
+        total_ms: result.metrics.total_ms,
+        spans: result.spans,
+      };
+      console.info(JSON.stringify({ event: "transcription.rendered", trace_id: result.trace_id, request_id: result.request_id, ...result.metrics }));
+      setState({ kind: "success", run, roundTripMs: result.metrics.roundTripMs });
+      setSelectedRunId(result.run_id);
+      setReferenceInput({ runId: result.run_id, text: "" });
+      setReferenceStatus({ kind: "idle" });
     } catch (error) {
       setState({ kind: "error", message: error instanceof Error ? error.message : "Transcription failed." });
     } finally {
@@ -64,7 +142,6 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
       streamRef.current = stream;
       recorderRef.current = recorder;
       chunksRef.current = [];
@@ -89,112 +166,139 @@ function App() {
     streamRef.current = null;
   }
 
+  async function labelRun(event) {
+    event.preventDefault();
+    if (!selectedRun) return;
+    setReferenceStatus({ kind: "saving" });
+    try {
+      await saveReference(selectedRun.id, referenceText.trim());
+      setReferenceStatus({ kind: "saved" });
+      setHistoryVersion((version) => version + 1);
+    } catch (error) {
+      setReferenceStatus({ kind: "error", message: error instanceof Error ? error.message : "The label could not be saved." });
+    }
+  }
+
   const isRecording = state.kind === "recording";
   const isTranscribing = state.kind === "transcribing";
   const status = isRecording ? "Listening" : isTranscribing ? "Transcribing" : "Ready";
-  const latencyStages = state.kind === "success" ? buildLatencyStages(state.metrics) : [];
 
   return (
     <main>
       <header>
         <span aria-hidden="true" />
         <p>VOICE / LOCAL</p>
-        <small>WHISPER BASE.EN</small>
+        <small>WHISPER {MODEL_NAME.toUpperCase()}</small>
       </header>
 
       <section className="panel">
         <div className="intro">
           <p className="eyebrow">ONE TURN · LOCAL TRANSCRIPTION</p>
-          <h1>Say one thing.<br />See what Whisper heard.</h1>
-          <p>Audio stays on this Mac. The API removes each temporary recording after transcription.</p>
+          <h1>Say one thing.<br />Inspect every stage.</h1>
+          <p>The API deletes the audio after transcription. It stores the transcript and trace in local SQLite.</p>
         </div>
-
         <div className="control">
           <div className={`status ${isRecording ? "recording" : ""}`} aria-live="polite">
-            <span aria-hidden="true" />
-            {status}
+            <span aria-hidden="true" />{status}
           </div>
-          <button
-            ref={buttonRef}
-            type="button"
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={isTranscribing}
-          >
+          <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isTranscribing}>
             {isRecording ? "Stop and transcribe" : isTranscribing ? "Working…" : "Start recording"}
           </button>
           <p className="hint">Speak for a few seconds. Then stop the recording.</p>
+          {state.kind === "error" && <p className="control-error" role="alert">{state.message}</p>}
         </div>
       </section>
 
-      <section className="result" aria-live="polite" aria-atomic="true">
-        <div>
-          <p className="eyebrow">TRANSCRIPT</p>
-          {state.kind === "success" && <small>Request {state.requestId}</small>}
-        </div>
-        <p className={state.kind === "error" ? "error" : "transcript"}>
-          {state.kind === "success" ? state.text || "No speech was detected." : state.kind === "error" ? state.message : "Your transcript will appear here."}
-        </p>
-        {state.kind === "success" && (
-          <div className="metrics" aria-label="Latency breakdown">
-            <div className="metrics-summary">
-              <div><span>Recording</span><strong>{state.metrics.recording_ms} ms</strong></div>
-              <div><span>After stop</span><strong>{state.metrics.roundTripMs} ms</strong></div>
-              <div><span>Backend</span><strong>{state.metrics.total_ms} ms</strong></div>
+      <section className="run-detail" aria-live="polite">
+        {!selectedRun && <p className="empty-detail">Record audio or select a stored run.</p>}
+        {selectedRun && (
+          <>
+            <div className="run-heading">
+              <div>
+                <p className="eyebrow">SELECTED RUN · {selectedRun.status}</p>
+                <small>Trace {selectedRun.trace_id}</small>
+              </div>
+              <dl>
+                <div><dt>Model</dt><dd>{selectedRun.model}</dd></div>
+                <div><dt>Request</dt><dd>{selectedRun.request_id}</dd></div>
+                {liveRun?.id === selectedRun.id && <div><dt>Round trip</dt><dd>{formatMs(state.roundTripMs)}</dd></div>}
+              </dl>
             </div>
-            <div className="breakdown-heading">
-              <p>AFTER-STOP LATENCY</p>
-              <small>Longer bar means more time</small>
-            </div>
-            <ol className="breakdown">
-              {latencyStages.map((stage) => (
-                <li key={stage.key}>
-                  <div>
-                    <span>{stage.label}</span>
-                    {stage.isBottleneck && <em>Bottleneck</em>}
-                    <strong>{stage.ms} ms</strong>
+            <p className="transcript">
+              {selectedRun.transcript ?? "Transcript text was not stored for this legacy run."}
+            </p>
+            {renderTraceTimeline(selectedRun)}
+            {selectedRun.transcript != null && (
+              <form className="reference" onSubmit={labelRun}>
+                <div>
+                  <label htmlFor="reference-text">WHAT I ACTUALLY SAID</label>
+                  <p>Use this label to measure word error rate. The label stays in local SQLite.</p>
+                </div>
+                <div>
+                  <textarea id="reference-text" value={referenceText} onChange={(event) => setReferenceInput({ runId: selectedRun.id, text: event.target.value })} required maxLength="2000" rows="3" />
+                  <div className="reference-actions">
+                    <button type="submit" disabled={referenceStatus.kind === "saving" || !referenceText.trim()}>
+                      {referenceStatus.kind === "saving" ? "Saving…" : "Save accuracy label"}
+                    </button>
+                    <strong>{formatRate(selectedRun.word_error_rate)}</strong>
                   </div>
-                  <span className="track" aria-hidden="true">
-                    <span style={{ width: `${stage.percent}%` }} />
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
+                  {selectedRun.reference_words != null && <small>{selectedRun.word_errors} word errors across {selectedRun.reference_words} reference words.</small>}
+                  {referenceStatus.kind === "saved" && <small className="success">Label saved.</small>}
+                  {referenceStatus.kind === "error" && <small className="error" role="alert">{referenceStatus.message}</small>}
+                </div>
+              </form>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="trends">
+        <div className="section-heading">
+          <p className="eyebrow">TRENDS</p>
+          <small>{history.summary && history.summary.total_runs < 20 ? "EARLY SAMPLE · USE WITH CARE" : "ALL STORED RUNS"}</small>
+        </div>
+        {history.summary && (
+          <>
+            <div className="trend-summary">
+              <div><span>Runs</span><strong>{history.summary.total_runs}</strong></div>
+              <div><span>Success rate</span><strong>{formatRate(history.summary.success_rate)}</strong></div>
+              <div><span>Failed</span><strong>{history.summary.failed_runs}</strong></div>
+            </div>
+            <div className="history-table-wrap">
+              <table>
+                <caption>Aggregate transcription metrics by model</caption>
+                <thead><tr><th>Model</th><th>Runs</th><th>Total P50</th><th>Total P95</th><th>Whisper P50</th><th>Whisper P95</th><th>Labeled</th><th>WER</th></tr></thead>
+                <tbody>{history.summary.models.map((model) => (
+                  <tr key={model.model}>
+                    <td>{model.model}</td><td>{model.runs}</td><td>{formatMs(model.p50_total_ms)}</td><td>{formatMs(model.p95_total_ms)}</td>
+                    <td>{formatMs(model.p50_transcription_ms)}</td><td>{formatMs(model.p95_transcription_ms)}</td><td>{model.labeled_runs}</td><td>{formatRate(model.word_error_rate)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 
       <section className="history">
-        <div className="history-heading">
+        <div className="section-heading">
           <p className="eyebrow">RUN HISTORY</p>
           <small>SQLITE · NEWEST 50</small>
         </div>
         {history.kind === "loading" && <p className="history-note">Loading stored runs…</p>}
         {history.kind === "error" && <p className="history-note error">Run history is unavailable.</p>}
-        {history.kind === "ready" && history.runs.length === 0 && <p className="history-note">No stored runs yet.</p>}
+        {history.kind === "ready" && history.runs.length === 0 && <p className="history-note">No stored runs exist.</p>}
         {history.kind === "ready" && history.runs.length > 0 && (
           <div className="history-table-wrap">
             <table>
               <caption>Stored transcription runs</caption>
-              <thead>
-                <tr><th>Time</th><th>Status</th><th>Backend</th><th>Whisper</th><th>Slowest stage</th><th>Request</th></tr>
-              </thead>
-              <tbody>
-                {history.runs.map((run) => {
-                  const slowest = run.status === "failed"
-                    ? `Failed at ${run.failure_stage}`
-                    : buildLatencyStages({ ...run, roundTripMs: run.total_ms }).find((stage) => stage.isBottleneck).label;
-                  return (
-                    <tr key={run.id}>
-                      <td><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td>
-                      <td className={run.status === "failed" ? "failed" : ""}>{run.status}</td>
-                      <td>{run.total_ms} ms</td>
-                      <td>{run.transcription_ms} ms</td>
-                      <td>{slowest}</td>
-                      <td>{run.request_id}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+              <thead><tr><th>Time</th><th>Model</th><th>Backend</th><th>Whisper</th><th>WER</th><th>Request</th></tr></thead>
+              <tbody>{history.runs.map((run) => (
+                <tr className={run.id === selectedRunId ? "selected" : ""} key={run.id}>
+                  <td><button type="button" onClick={() => { setSelectedRunId(run.id); setReferenceStatus({ kind: "idle" }); }}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></button></td>
+                  <td>{run.model}</td><td>{formatMs(run.total_ms)}</td><td>{formatMs(run.transcription_ms)}</td><td>{formatRate(run.word_error_rate)}</td><td>{run.request_id}</td>
+                </tr>
+              ))}</tbody>
             </table>
           </div>
         )}

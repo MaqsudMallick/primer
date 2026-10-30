@@ -69,6 +69,15 @@ def test_success_returns_and_logs_metrics(monkeypatch, tmp_path) -> None:
     assert response.json()["request_id"] == "test-request-1"
     assert response.json()["text"] == "Hello world."
     assert response.json()["metrics"]["recording_ms"] == 1250
+    assert len(response.json()["trace_id"]) == 32
+    assert [span["name"] for span in response.json()["spans"]] == [
+        "http.request.read",
+        "runtime.preflight",
+        "audio.prepare",
+        "audio.convert",
+        "speech.transcribe",
+    ]
+    assert all(span["parent_span_id"] for span in response.json()["spans"])
     assert events[0]["event"] == "transcription.completed"
     assert events[0]["request_id"] == "test-request-1"
     assert events[0]["media_type"] == "audio/webm"
@@ -78,4 +87,19 @@ def test_success_returns_and_logs_metrics(monkeypatch, tmp_path) -> None:
     assert stored_run["status"] == "completed"
     assert stored_run["recording_ms"] == 1250
     assert stored_run["transcript_characters"] == 12
-    assert "text" not in stored_run
+    assert stored_run["transcript"] == "Hello world."
+    assert len(stored_run["spans"]) == 5
+
+    labeled_run = client.put(
+        f"/api/runs/{stored_run['id']}/reference",
+        json={"text": "Hello brave world"},
+    )
+    assert labeled_run.status_code == 200
+    assert labeled_run.json()["word_errors"] == 1
+    assert labeled_run.json()["reference_words"] == 3
+    assert labeled_run.json()["word_error_rate"] == 0.3333
+
+    summary = client.get("/api/runs/summary").json()
+    assert summary["total_runs"] == 1
+    assert summary["models"][0]["labeled_runs"] == 1
+    assert summary["models"][0]["word_error_rate"] == 0.3333

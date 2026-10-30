@@ -1,21 +1,49 @@
-export function buildLatencyStages(metrics) {
-  const backendStages = [
-    { key: "request", label: "Request read", ms: metrics.request_read_ms },
-    { key: "conversion", label: "Audio conversion", ms: metrics.conversion_ms },
-    { key: "whisper", label: "Whisper", ms: metrics.transcription_ms },
-  ];
-  const measuredBackendMs = backendStages.reduce((total, stage) => total + stage.ms, 0);
-  const stages = [
-    { key: "transport", label: "Transport + browser", ms: Math.max(0, metrics.roundTripMs - metrics.total_ms) },
-    ...backendStages,
-    { key: "overhead", label: "Backend overhead", ms: Math.max(0, metrics.total_ms - measuredBackendMs) },
-  ];
-  const scaleMs = Math.max(metrics.roundTripMs, stages.reduce((total, stage) => total + stage.ms, 0), 1);
-  const bottleneckMs = Math.max(...stages.map((stage) => stage.ms));
+const LABELS = {
+  "http.request.read": "Request read",
+  "runtime.preflight": "Preflight",
+  "audio.prepare": "Audio prepare",
+  "audio.convert": "Audio conversion",
+  "speech.transcribe": "Whisper",
+  "legacy.uninstrumented": "Uninstrumented",
+};
 
-  return stages.map((stage) => ({
-    ...stage,
-    percent: (stage.ms / scaleMs) * 100,
-    isBottleneck: stage.ms === bottleneckMs,
-  }));
+export function spanLabel(name) {
+  return LABELS[name] ?? name;
+}
+
+export function buildLegacySpans(run) {
+  const durations = [
+    ["http.request.read", run.request_read_ms],
+    ["audio.convert", run.conversion_ms],
+    ["speech.transcribe", run.transcription_ms],
+  ];
+  let startedMs = 0;
+  const spans = durations.map(([name, duration]) => {
+    const span = {
+      name,
+      started_ms: startedMs,
+      ended_ms: startedMs + duration,
+      duration_ms: duration,
+      status: run.status === "failed" && run.failure_stage === name ? "error" : "ok",
+    };
+    startedMs = span.ended_ms;
+    return span;
+  });
+  const remainder = Math.max(0, run.total_ms - startedMs);
+  if (remainder) {
+    spans.push({
+      name: "legacy.uninstrumented",
+      started_ms: startedMs,
+      ended_ms: startedMs + remainder,
+      duration_ms: remainder,
+      status: "ok",
+    });
+  }
+  return spans;
+}
+
+export function slowestSpan(spans) {
+  return spans.reduce((slowest, span) => (
+    !slowest || span.duration_ms > slowest.duration_ms ? span : slowest
+  ), null);
 }

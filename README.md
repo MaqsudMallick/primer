@@ -7,7 +7,7 @@ This project records one browser audio turn and transcribes it with local Whispe
 Install Docker Desktop. Confirm that this model file exists:
 
 ```text
-apps/api/models/ggml-base.en.bin
+apps/api/models/ggml-small.en.bin
 ```
 
 Run this command from the repository root:
@@ -55,9 +55,9 @@ The web application runs at `http://localhost:5173`.
 
 - `ffmpeg`
 - `whisper-cli` from `whisper.cpp`
-- `apps/api/models/ggml-base.en.bin`
+- `apps/api/models/ggml-small.en.bin`
 
-The API removes temporary audio and transcript files after each request.
+The API removes temporary audio files after each request.
 
 ## Observability
 
@@ -75,10 +75,14 @@ Each successful event includes:
 - Media type
 - Model and execution mode
 
-The browser shows an after-stop latency breakdown. It marks the longest stage as the bottleneck. The recording duration is separate because the user controls it.
+The browser shows one timeline for each backend trace. Each stage is a span. Each span has an exact start time, end time, status, trace ID, span ID, and parent span ID.
 
-The API stores every completed or failed run in SQLite. It stores timing, status, failure stage, media type, audio size, model, and transcript character count. It does not store audio or transcript text.
+The API stores every completed or failed run in SQLite. It stores trace spans, timing, status, media type, audio size, model, and transcript text. It never stores recorded audio.
+
+Select a run to inspect its timeline. Add the text that you said to calculate word error rate. The Trends table shows P50 and P95 latency for each model. It also shows the aggregate word error rate for labeled runs.
+
+The default model is `small.en`. It needs more memory and time than `base.en`. It usually gives better English transcripts. Old runs stay in the database. Old runs do not contain exact span timestamps or transcript text. The interface marks their timelines as estimated.
 
 Docker stores the SQLite database in the `runs-data` volume. `docker compose down` keeps this volume. `docker compose down -v` deletes it.
 
-The API also writes each result to standard output. Railway captures this output after deployment. Use the request ID to correlate the browser result, database record, and API event.
+The API also writes each result to standard output. Railway captures this output after deployment. Use the trace ID to correlate the browser result, database record, spans, and API event.

@@ -1,35 +1,48 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildLatencyStages } from "./metrics.js";
+import { buildLegacySpans, slowestSpan, spanLabel } from "./metrics.js";
 
-test("builds a complete latency breakdown and marks the longest stage", () => {
-  const stages = buildLatencyStages({
+test("builds sequential estimated spans for a legacy run", () => {
+  const spans = buildLegacySpans({
+    status: "completed",
+    failure_stage: null,
     request_read_ms: 5,
     conversion_ms: 50,
     transcription_ms: 600,
     total_ms: 700,
-    roundTripMs: 800,
   });
 
-  assert.deepEqual(stages.map(({ label, ms, isBottleneck }) => ({ label, ms, isBottleneck })), [
-    { label: "Transport + browser", ms: 100, isBottleneck: false },
-    { label: "Request read", ms: 5, isBottleneck: false },
-    { label: "Audio conversion", ms: 50, isBottleneck: false },
-    { label: "Whisper", ms: 600, isBottleneck: true },
-    { label: "Backend overhead", ms: 45, isBottleneck: false },
+  assert.deepEqual(spans.map(({ name, started_ms, ended_ms }) => ({ name, started_ms, ended_ms })), [
+    { name: "http.request.read", started_ms: 0, ended_ms: 5 },
+    { name: "audio.convert", started_ms: 5, ended_ms: 55 },
+    { name: "speech.transcribe", started_ms: 55, ended_ms: 655 },
+    { name: "legacy.uninstrumented", started_ms: 655, ended_ms: 700 },
   ]);
 });
 
-test("does not report negative remainder stages", () => {
-  const stages = buildLatencyStages({
-    request_read_ms: 1,
-    conversion_ms: 10,
-    transcription_ms: 90,
-    total_ms: 100,
-    roundTripMs: 99,
+test("finds the slowest span and gives it a stable label", () => {
+  const spans = buildLegacySpans({
+    status: "completed",
+    failure_stage: null,
+    request_read_ms: 5,
+    conversion_ms: 50,
+    transcription_ms: 600,
+    total_ms: 700,
   });
 
-  assert.equal(stages.find((stage) => stage.key === "transport").ms, 0);
-  assert.equal(stages.find((stage) => stage.key === "overhead").ms, 0);
+  assert.equal(spanLabel(slowestSpan(spans).name), "Whisper");
+});
+
+test("does not create a negative legacy remainder", () => {
+  const spans = buildLegacySpans({
+    status: "completed",
+    failure_stage: null,
+    request_read_ms: 10,
+    conversion_ms: 20,
+    transcription_ms: 80,
+    total_ms: 100,
+  });
+
+  assert.equal(spans.some((span) => span.name === "legacy.uninstrumented"), false);
 });
