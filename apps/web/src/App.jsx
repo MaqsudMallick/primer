@@ -4,13 +4,27 @@ import { fetchRunData, saveReference, transcribeAudio } from "./api.js";
 import { buildLegacySpans, slowestSpan, spanLabel } from "./metrics.js";
 
 const MODEL_NAME = import.meta.env.VITE_WHISPER_MODEL ?? "small.en";
+const RECENT_RUN_COUNT = 4;
 
 function formatMs(value) {
   return `${Math.round(value)} ms`;
 }
 
 function formatRate(value) {
-  return value == null ? "Not labeled" : `${(value * 100).toFixed(1)}%`;
+  return value == null ? "—" : `${(value * 100).toFixed(1)}%`;
+}
+
+function formatModelName(value) {
+  return value.replace(/^ggml-/, "").replace(/\.bin$/, "");
+}
+
+function formatRunTime(value) {
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function renderTraceTimeline(run) {
@@ -70,6 +84,7 @@ function App() {
   const [modelName, setModelName] = useState(MODEL_NAME);
   const [history, setHistory] = useState({ kind: "loading", runs: [], summary: null });
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [showAllRuns, setShowAllRuns] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState(null);
   const [detailPhase, setDetailPhase] = useState("opening");
   const [referenceInput, setReferenceInput] = useState({ runId: null, text: "" });
@@ -96,6 +111,9 @@ function App() {
   const liveRun = state.kind === "success" ? state.run : null;
   const selectedRun = history.runs.find((run) => run.id === selectedRunId)
     ?? (liveRun?.id === selectedRunId ? liveRun : null);
+  const visibleRuns = showAllRuns ? history.runs : history.runs.slice(0, RECENT_RUN_COUNT);
+  const labeledRuns = history.summary?.models.reduce((total, model) => total + model.labeled_runs, 0) ?? 0;
+  const maxP95Ms = Math.max(...(history.summary?.models.map((model) => model.p95_transcription_ms ?? 0) ?? []), 1);
 
   const referenceText = referenceInput.runId === selectedRun?.id
     ? referenceInput.text
@@ -202,6 +220,14 @@ function App() {
     }
   }
 
+  function toggleRunCount() {
+    if (showAllRuns && !history.runs.slice(0, RECENT_RUN_COUNT).some((run) => run.id === selectedRunId)) {
+      setSelectedRunId(null);
+      setDetailPhase("opening");
+    }
+    setShowAllRuns((current) => !current);
+  }
+
   const isRecording = state.kind === "recording";
   const isTranscribing = state.kind === "transcribing";
   const status = isRecording ? "Listening" : isTranscribing ? "Transcribing" : "Ready";
@@ -241,27 +267,41 @@ function App() {
 
       <section className="trends">
         <div className="section-heading">
-          <p className="eyebrow">TRENDS</p>
+          <p className="eyebrow">PERFORMANCE</p>
           <small>{history.summary && history.summary.total_runs < 20 ? "EARLY SAMPLE · USE WITH CARE" : "ALL STORED RUNS"}</small>
         </div>
         {history.summary && (
           <>
-            <div className="trend-summary">
-              <div><span>Runs</span><strong>{history.summary.total_runs}</strong></div>
-              <div><span>Success rate</span><strong>{formatRate(history.summary.success_rate)}</strong></div>
-              <div><span>Failed</span><strong>{history.summary.failed_runs}</strong></div>
+            <div className="signal-strip">
+              <div><strong>{history.summary.total_runs}</strong><span>Runs</span></div>
+              <div><strong>{formatRate(history.summary.success_rate)}</strong><span>Successful</span></div>
+              <div><strong>{labeledRuns}</strong><span>Accuracy labels</span></div>
             </div>
-            <div className="history-table-wrap">
-              <table>
-                <caption>Aggregate transcription metrics by model</caption>
-                <thead><tr><th>Model</th><th>Runs</th><th>Total P50</th><th>Total P95</th><th>Whisper P50</th><th>Whisper P95</th><th>Labeled</th><th>WER</th></tr></thead>
-                <tbody>{history.summary.models.map((model) => (
-                  <tr key={model.model}>
-                    <td>{model.model}</td><td>{model.runs}</td><td>{formatMs(model.p50_total_ms)}</td><td>{formatMs(model.p95_total_ms)}</td>
-                    <td>{formatMs(model.p50_transcription_ms)}</td><td>{formatMs(model.p95_transcription_ms)}</td><td>{model.labeled_runs}</td><td>{formatRate(model.word_error_rate)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+            <div className="model-benchmarks">
+              {history.summary.models.map((model) => {
+                const p50Percent = ((model.p50_transcription_ms ?? 0) / maxP95Ms) * 100;
+                const p95Percent = ((model.p95_transcription_ms ?? 0) / maxP95Ms) * 100;
+                return (
+                  <article className="model-benchmark" key={model.model}>
+                    <div className="benchmark-heading">
+                      <h2>{formatModelName(model.model)}</h2>
+                      <small>{model.runs} {model.runs === 1 ? "run" : "runs"}</small>
+                    </div>
+                    <div className="benchmark-primary">
+                      <strong>{formatMs(model.p50_transcription_ms)}</strong>
+                      <span>Median Whisper time</span>
+                    </div>
+                    <div className="benchmark-track" role="img" aria-label={`Median ${formatMs(model.p50_transcription_ms)}. P95 ${formatMs(model.p95_transcription_ms)}.`}>
+                      <span style={{ width: `${p95Percent}%` }} />
+                      <i style={{ left: `${p50Percent}%` }} />
+                    </div>
+                    <dl>
+                      <div><dt>P95</dt><dd>{formatMs(model.p95_transcription_ms)}</dd></div>
+                      <div><dt>Accuracy</dt><dd>{model.word_error_rate == null ? "Needs labels" : `${formatRate(model.word_error_rate)} WER`}</dd></div>
+                    </dl>
+                  </article>
+                );
+              })}
             </div>
           </>
         )}
@@ -269,28 +309,35 @@ function App() {
 
       <section className="history">
         <div className="section-heading">
-          <p className="eyebrow">RUN HISTORY</p>
-          <small>SQLITE · NEWEST 50</small>
+          <p className="eyebrow">RECENT RUNS</p>
+          <small>{visibleRuns.length} OF {history.runs.length}</small>
         </div>
         {history.kind === "loading" && <p className="history-note">Loading stored runs…</p>}
         {history.kind === "error" && <p className="history-note error">Run history is unavailable.</p>}
         {history.kind === "ready" && history.runs.length === 0 && <p className="history-note">No stored runs exist.</p>}
         {history.kind === "ready" && history.runs.length > 0 && (
-          <div className="history-table-wrap">
-            <table>
-              <caption>Stored transcription runs</caption>
-              <thead><tr><th>Time</th><th>Model</th><th>Backend</th><th>Whisper</th><th>WER</th><th>Request</th></tr></thead>
-              <tbody>{history.runs.map((run) => ([
-                  <tr className={`run-row ${run.id === selectedRunId && detailPhase !== "closing" ? "selected" : ""}`} key={`${run.id}-row`}>
-                    <td><button type="button" aria-expanded={run.id === selectedRunId && detailPhase !== "closing"} aria-label={`${run.id === selectedRunId ? "Close" : "Open"} run from ${new Date(run.created_at).toLocaleString()}`} onClick={() => toggleRun(run.id)}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></button></td>
-                    <td>{run.model}</td><td>{formatMs(run.total_ms)}</td><td>{formatMs(run.transcription_ms)}</td><td>{formatRate(run.word_error_rate)}</td><td>{run.request_id}</td>
-                  </tr>,
-                  run.id === selectedRunId && selectedRun && (
-                    <tr className={`run-expansion ${detailPhase}`} key={`${run.id}-detail`}>
-                      <td colSpan="6">
-                        <div className="run-expansion-motion" onAnimationEnd={finishDetailAnimation}>
-                          <div className="run-expansion-clip">
-                            <div className="run-detail" aria-live="polite">
+          <>
+            <ol className="run-list">
+              {visibleRuns.map((run) => (
+                <li className={`run-item ${run.id === selectedRunId && detailPhase !== "closing" ? "selected" : ""}`} key={run.id}>
+                  <button
+                    className="run-summary"
+                    type="button"
+                    aria-expanded={run.id === selectedRunId && detailPhase !== "closing"}
+                    aria-controls={`run-detail-${run.id}`}
+                    onClick={() => toggleRun(run.id)}
+                  >
+                    <time className="run-time" dateTime={run.created_at}>{formatRunTime(run.created_at)}</time>
+                    <span className="run-model">{formatModelName(run.model)}</span>
+                    <span className="run-latency"><small>Total</small><strong>{formatMs(run.total_ms)}</strong></span>
+                    <span className="run-accuracy">{run.word_error_rate == null ? "" : `${formatRate(run.word_error_rate)} WER`}</span>
+                    <span className="run-toggle" aria-hidden="true">+</span>
+                  </button>
+                  {run.id === selectedRunId && selectedRun && (
+                    <div className={`run-expansion ${detailPhase}`} id={`run-detail-${run.id}`}>
+                      <div className="run-expansion-motion" onAnimationEnd={finishDetailAnimation}>
+                        <div className="run-expansion-clip">
+                          <div className="run-detail" aria-live="polite">
                           <div className="run-context">
                             <p>TRACE {selectedRun.trace_id}</p>
                             <small>{selectedRun.status}{liveRun?.id === selectedRun.id ? ` · ${formatMs(state.roundTripMs)} round trip` : ""}</small>
@@ -317,15 +364,20 @@ function App() {
                               </div>
                             </form>
                           )}
-                            </div>
                           </div>
                         </div>
-                      </td>
-                    </tr>
-                  )
-              ]))}</tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+            {history.runs.length > RECENT_RUN_COUNT && (
+              <button className="history-more" type="button" onClick={toggleRunCount}>
+                {showAllRuns ? `Show recent ${RECENT_RUN_COUNT}` : `Show all ${history.runs.length}`}
+              </button>
+            )}
+          </>
         )}
       </section>
     </main>
