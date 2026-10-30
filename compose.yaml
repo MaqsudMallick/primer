@@ -2,6 +2,8 @@ services:
   api:
     build:
       context: ./apps/api
+    environment:
+      RUNS_DB_PATH: /app/data/runs.db
     ports:
       - "8001:8001"
     volumes:
@@ -11,6 +13,7 @@ services:
         read_only: true
         bind:
           create_host_path: false
+      - runs-data:/app/data
 
   web:
     build:
@@ -21,3 +24,6 @@ services:
       - api
     ports:
       - "5173:80"
+
+volumes:
+  runs-data:

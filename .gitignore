@@ -6,4 +6,5 @@ __pycache__/
 .ruff_cache/
 node_modules/
 dist/
+apps/api/data/
 apps/api/models/*.bin

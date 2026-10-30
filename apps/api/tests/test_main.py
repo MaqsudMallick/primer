@@ -1,11 +1,17 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
-from app import main
+from app import main, runs
 from app.main import MAX_AUDIO_BYTES, app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolated_run_database(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(runs, "DB_PATH", tmp_path / "runs.db")
 
 
 def test_health() -> None:
@@ -20,6 +26,7 @@ def test_empty_audio_is_rejected() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "Audio is required."}
+    assert client.get("/api/runs").json()[0]["status"] == "failed"
 
 
 def test_declared_large_audio_is_rejected() -> None:
@@ -65,3 +72,10 @@ def test_success_returns_and_logs_metrics(monkeypatch, tmp_path) -> None:
     assert events[0]["event"] == "transcription.completed"
     assert events[0]["request_id"] == "test-request-1"
     assert events[0]["media_type"] == "audio/webm"
+
+    stored_run = client.get("/api/runs").json()[0]
+    assert stored_run["request_id"] == "test-request-1"
+    assert stored_run["status"] == "completed"
+    assert stored_run["recording_ms"] == 1250
+    assert stored_run["transcript_characters"] == 12
+    assert "text" not in stored_run

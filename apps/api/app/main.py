@@ -3,13 +3,15 @@ import shutil
 import subprocess
 from tempfile import TemporaryDirectory
 from time import perf_counter
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app import runs
 from app.observability import log_metric
 
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
@@ -30,6 +32,24 @@ class TranscriptionResponse(BaseModel):
     metrics: TranscriptionMetrics
 
 
+class RunRecord(BaseModel):
+    id: int
+    request_id: str
+    created_at: datetime
+    status: Literal["completed", "failed"]
+    failure_stage: str | None
+    recording_ms: int | None
+    request_read_ms: int
+    conversion_ms: int
+    transcription_ms: int
+    total_ms: int
+    audio_bytes: int
+    media_type: str
+    model: str
+    execution: str
+    transcript_characters: int | None
+
+
 app = FastAPI(title="Voice Agent Starter API")
 app.add_middleware(
     CORSMiddleware,
@@ -42,6 +62,11 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/runs", response_model=list[RunRecord])
+def get_runs(limit: Annotated[int, Query(ge=1, le=500)] = 50) -> list[dict]:
+    return runs.list_runs(limit)
 
 
 async def read_audio(request: Request) -> bytes:
@@ -91,6 +116,8 @@ async def transcribe(
     request_read_ms = 0
     conversion_ms = 0
     transcription_ms = 0
+    run_status = "failed"
+    text = ""
 
     try:
         read_started = perf_counter()
@@ -131,6 +158,7 @@ async def transcribe(
             )
             transcription_ms = round((perf_counter() - transcription_started) * 1000)
             text = Path(f"{output}.txt").read_text().strip()
+            run_status = "completed"
     except HTTPException as error:
         log_metric(
             "transcription.failed",
@@ -166,8 +194,24 @@ async def transcribe(
             error_type=type(error).__name__,
         )
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Audio processing failed.") from error
+    finally:
+        total_ms = round((perf_counter() - started) * 1000)
+        runs.save_run(
+            request_id=request_id,
+            status=run_status,
+            failure_stage=None if run_status == "completed" else stage,
+            recording_ms=recording_ms,
+            request_read_ms=request_read_ms,
+            conversion_ms=conversion_ms,
+            transcription_ms=transcription_ms,
+            total_ms=total_ms,
+            audio_bytes=audio_bytes,
+            media_type=media_type,
+            model=MODEL_PATH.name,
+            execution="cpu",
+            transcript_characters=len(text) if run_status == "completed" else None,
+        )
 
-    total_ms = round((perf_counter() - started) * 1000)
     metrics = TranscriptionMetrics(
         recording_ms=recording_ms,
         request_read_ms=request_read_ms,

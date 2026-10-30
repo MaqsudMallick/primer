@@ -6,6 +6,8 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8001";
 
 function App() {
   const [state, setState] = useState({ kind: "idle" });
+  const [history, setHistory] = useState({ kind: "loading", runs: [] });
+  const [historyVersion, setHistoryVersion] = useState(0);
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -14,6 +16,19 @@ function App() {
   const requestIdRef = useRef("");
 
   useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  useEffect(() => {
+    let active = true;
+
+    fetch(`${API_URL}/api/runs`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Run history is unavailable.");
+        return response.json();
+      })
+      .then((runs) => active && setHistory({ kind: "ready", runs }))
+      .catch(() => active && setHistory({ kind: "error", runs: [] }));
+
+    return () => { active = false; };
+  }, [historyVersion]);
 
   async function transcribe(blob, recordingMs, requestId) {
     setState({ kind: "transcribing" });
@@ -39,6 +54,7 @@ function App() {
     } catch (error) {
       setState({ kind: "error", message: error instanceof Error ? error.message : "Transcription failed." });
     } finally {
+      setHistoryVersion((version) => version + 1);
       buttonRef.current?.focus();
     }
   }
@@ -143,6 +159,43 @@ function App() {
                 </li>
               ))}
             </ol>
+          </div>
+        )}
+      </section>
+
+      <section className="history">
+        <div className="history-heading">
+          <p className="eyebrow">RUN HISTORY</p>
+          <small>SQLITE · NEWEST 50</small>
+        </div>
+        {history.kind === "loading" && <p className="history-note">Loading stored runs…</p>}
+        {history.kind === "error" && <p className="history-note error">Run history is unavailable.</p>}
+        {history.kind === "ready" && history.runs.length === 0 && <p className="history-note">No stored runs yet.</p>}
+        {history.kind === "ready" && history.runs.length > 0 && (
+          <div className="history-table-wrap">
+            <table>
+              <caption>Stored transcription runs</caption>
+              <thead>
+                <tr><th>Time</th><th>Status</th><th>Backend</th><th>Whisper</th><th>Slowest stage</th><th>Request</th></tr>
+              </thead>
+              <tbody>
+                {history.runs.map((run) => {
+                  const slowest = run.status === "failed"
+                    ? `Failed at ${run.failure_stage}`
+                    : buildLatencyStages({ ...run, roundTripMs: run.total_ms }).find((stage) => stage.isBottleneck).label;
+                  return (
+                    <tr key={run.id}>
+                      <td><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td>
+                      <td className={run.status === "failed" ? "failed" : ""}>{run.status}</td>
+                      <td>{run.total_ms} ms</td>
+                      <td>{run.transcription_ms} ms</td>
+                      <td>{slowest}</td>
+                      <td>{run.request_id}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

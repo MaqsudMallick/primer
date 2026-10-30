@@ -77,4 +77,8 @@ Each successful event includes:
 
 The browser shows an after-stop latency breakdown. It marks the longest stage as the bottleneck. The recording duration is separate because the user controls it.
 
-The application does not use a telemetry database. The API writes each result to standard output. Railway captures this output after deployment. Use the request ID to correlate the browser result and the API event.
+The API stores every completed or failed run in SQLite. It stores timing, status, failure stage, media type, audio size, model, and transcript character count. It does not store audio or transcript text.
+
+Docker stores the SQLite database in the `runs-data` volume. `docker compose down` keeps this volume. `docker compose down -v` deletes it.
+
+The API also writes each result to standard output. Railway captures this output after deployment. Use the request ID to correlate the browser result, database record, and API event.
