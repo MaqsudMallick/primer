@@ -71,6 +71,7 @@ function App() {
   const [history, setHistory] = useState({ kind: "loading", runs: [], summary: null });
   const [historyVersion, setHistoryVersion] = useState(0);
   const [selectedRunId, setSelectedRunId] = useState(null);
+  const [detailPhase, setDetailPhase] = useState("opening");
   const [referenceInput, setReferenceInput] = useState({ runId: null, text: "" });
   const [referenceStatus, setReferenceStatus] = useState({ kind: "idle" });
   const recorderRef = useRef(null);
@@ -87,7 +88,6 @@ function App() {
       .then(({ runs, summary }) => {
         if (!active) return;
         setHistory({ kind: "ready", runs, summary });
-        setSelectedRunId((current) => current ?? runs[0]?.id ?? null);
       })
       .catch(() => active && setHistory({ kind: "error", runs: [], summary: null }));
     return () => { active = false; };
@@ -128,6 +128,7 @@ function App() {
       console.info(JSON.stringify({ event: "transcription.rendered", trace_id: result.trace_id, request_id: result.request_id, ...result.metrics }));
       setState({ kind: "success", run, roundTripMs: result.metrics.roundTripMs });
       setSelectedRunId(result.run_id);
+      setDetailPhase("opening");
       setReferenceInput({ runId: result.run_id, text: "" });
       setReferenceStatus({ kind: "idle" });
     } catch (error) {
@@ -177,6 +178,27 @@ function App() {
       setHistoryVersion((version) => version + 1);
     } catch (error) {
       setReferenceStatus({ kind: "error", message: error instanceof Error ? error.message : "The label could not be saved." });
+    }
+  }
+
+  function toggleRun(runId) {
+    setReferenceStatus({ kind: "idle" });
+    if (runId !== selectedRunId) {
+      setSelectedRunId(runId);
+      setDetailPhase("opening");
+      return;
+    }
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setSelectedRunId(null);
+      return;
+    }
+    setDetailPhase("closing");
+  }
+
+  function finishDetailAnimation(event) {
+    if (event.target === event.currentTarget && detailPhase === "closing") {
+      setSelectedRunId(null);
+      setDetailPhase("opening");
     }
   }
 
@@ -259,14 +281,16 @@ function App() {
               <caption>Stored transcription runs</caption>
               <thead><tr><th>Time</th><th>Model</th><th>Backend</th><th>Whisper</th><th>WER</th><th>Request</th></tr></thead>
               <tbody>{history.runs.map((run) => ([
-                  <tr className={`run-row ${run.id === selectedRunId ? "selected" : ""}`} key={`${run.id}-row`}>
-                    <td><button type="button" aria-expanded={run.id === selectedRunId} aria-label={`Open run from ${new Date(run.created_at).toLocaleString()}`} onClick={() => { setSelectedRunId(run.id); setReferenceStatus({ kind: "idle" }); }}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></button></td>
+                  <tr className={`run-row ${run.id === selectedRunId && detailPhase !== "closing" ? "selected" : ""}`} key={`${run.id}-row`}>
+                    <td><button type="button" aria-expanded={run.id === selectedRunId && detailPhase !== "closing"} aria-label={`${run.id === selectedRunId ? "Close" : "Open"} run from ${new Date(run.created_at).toLocaleString()}`} onClick={() => toggleRun(run.id)}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></button></td>
                     <td>{run.model}</td><td>{formatMs(run.total_ms)}</td><td>{formatMs(run.transcription_ms)}</td><td>{formatRate(run.word_error_rate)}</td><td>{run.request_id}</td>
                   </tr>,
                   run.id === selectedRunId && selectedRun && (
-                    <tr className="run-expansion" key={`${run.id}-detail`}>
+                    <tr className={`run-expansion ${detailPhase}`} key={`${run.id}-detail`}>
                       <td colSpan="6">
-                        <div className="run-detail" aria-live="polite">
+                        <div className="run-expansion-motion" onAnimationEnd={finishDetailAnimation}>
+                          <div className="run-expansion-clip">
+                            <div className="run-detail" aria-live="polite">
                           <div className="run-context">
                             <p>TRACE {selectedRun.trace_id}</p>
                             <small>{selectedRun.status}{liveRun?.id === selectedRun.id ? ` · ${formatMs(state.roundTripMs)} round trip` : ""}</small>
@@ -291,6 +315,8 @@ function App() {
                               </div>
                             </form>
                           )}
+                            </div>
+                          </div>
                         </div>
                       </td>
                     </tr>
