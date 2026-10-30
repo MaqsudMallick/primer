@@ -69,6 +69,7 @@ header small { margin-left: auto; color: var(--muted); }
 .run-context p { margin: 0; overflow: hidden; font-size: 10px; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
 .run-context small { color: var(--muted); font-size: 10px; white-space: nowrap; }
 .transcript { margin: 54px 0 0; max-width: 1100px; font-size: clamp(32px, 4.6vw, 64px); line-height: 1.08; letter-spacing: -.045em; }
+.transcript-missing { margin: 24px 0 0; color: var(--muted); font-size: 12px; }
 
 .trace { border-top: 1px solid var(--line); padding-top: var(--space-4); }
 .trace-heading { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); }

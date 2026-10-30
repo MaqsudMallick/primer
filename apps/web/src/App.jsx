@@ -296,7 +296,9 @@ function App() {
                             <small>{selectedRun.status}{liveRun?.id === selectedRun.id ? ` · ${formatMs(state.roundTripMs)} round trip` : ""}</small>
                           </div>
                           {renderTraceTimeline(selectedRun)}
-                          <p className="transcript">{selectedRun.transcript ?? "Transcript text was not stored for this legacy run."}</p>
+                          {selectedRun.transcript
+                            ? <p className="transcript">{selectedRun.transcript}</p>
+                            : <p className="transcript-missing">{selectedRun.transcript === null ? "Transcript unavailable for this legacy run." : "No speech was detected."}</p>}
                           {selectedRun.transcript != null && (
                             <form className="reference" onSubmit={labelRun}>
                               <div>
