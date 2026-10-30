@@ -209,49 +209,6 @@ function App() {
         </div>
       </section>
 
-      <section className="run-detail" aria-live="polite">
-        {!selectedRun && <p className="empty-detail">Record audio or select a stored run.</p>}
-        {selectedRun && (
-          <>
-            <div className="run-heading">
-              <div>
-                <p className="eyebrow">SELECTED RUN · {selectedRun.status}</p>
-                <small>Trace {selectedRun.trace_id}</small>
-              </div>
-              <dl>
-                <div><dt>Model</dt><dd>{selectedRun.model}</dd></div>
-                <div><dt>Request</dt><dd>{selectedRun.request_id}</dd></div>
-                {liveRun?.id === selectedRun.id && <div><dt>Round trip</dt><dd>{formatMs(state.roundTripMs)}</dd></div>}
-              </dl>
-            </div>
-            <p className="transcript">
-              {selectedRun.transcript ?? "Transcript text was not stored for this legacy run."}
-            </p>
-            {renderTraceTimeline(selectedRun)}
-            {selectedRun.transcript != null && (
-              <form className="reference" onSubmit={labelRun}>
-                <div>
-                  <label htmlFor="reference-text">WHAT I ACTUALLY SAID</label>
-                  <p>Use this label to measure word error rate. The label stays in local SQLite.</p>
-                </div>
-                <div>
-                  <textarea id="reference-text" value={referenceText} onChange={(event) => setReferenceInput({ runId: selectedRun.id, text: event.target.value })} required maxLength="2000" rows="3" />
-                  <div className="reference-actions">
-                    <button type="submit" disabled={referenceStatus.kind === "saving" || !referenceText.trim()}>
-                      {referenceStatus.kind === "saving" ? "Saving…" : "Save accuracy label"}
-                    </button>
-                    <strong>{formatRate(selectedRun.word_error_rate)}</strong>
-                  </div>
-                  {selectedRun.reference_words != null && <small>{selectedRun.word_errors} word errors across {selectedRun.reference_words} reference words.</small>}
-                  {referenceStatus.kind === "saved" && <small className="success">Label saved.</small>}
-                  {referenceStatus.kind === "error" && <small className="error" role="alert">{referenceStatus.message}</small>}
-                </div>
-              </form>
-            )}
-          </>
-        )}
-      </section>
-
       <section className="trends">
         <div className="section-heading">
           <p className="eyebrow">TRENDS</p>
@@ -293,12 +250,44 @@ function App() {
             <table>
               <caption>Stored transcription runs</caption>
               <thead><tr><th>Time</th><th>Model</th><th>Backend</th><th>Whisper</th><th>WER</th><th>Request</th></tr></thead>
-              <tbody>{history.runs.map((run) => (
-                <tr className={run.id === selectedRunId ? "selected" : ""} key={run.id}>
-                  <td><button type="button" onClick={() => { setSelectedRunId(run.id); setReferenceStatus({ kind: "idle" }); }}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></button></td>
-                  <td>{run.model}</td><td>{formatMs(run.total_ms)}</td><td>{formatMs(run.transcription_ms)}</td><td>{formatRate(run.word_error_rate)}</td><td>{run.request_id}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>{history.runs.map((run) => ([
+                  <tr className={`run-row ${run.id === selectedRunId ? "selected" : ""}`} key={`${run.id}-row`}>
+                    <td><button type="button" aria-expanded={run.id === selectedRunId} aria-label={`Open run from ${new Date(run.created_at).toLocaleString()}`} onClick={() => { setSelectedRunId(run.id); setReferenceStatus({ kind: "idle" }); }}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></button></td>
+                    <td>{run.model}</td><td>{formatMs(run.total_ms)}</td><td>{formatMs(run.transcription_ms)}</td><td>{formatRate(run.word_error_rate)}</td><td>{run.request_id}</td>
+                  </tr>,
+                  run.id === selectedRunId && selectedRun && (
+                    <tr className="run-expansion" key={`${run.id}-detail`}>
+                      <td colSpan="6">
+                        <div className="run-detail" aria-live="polite">
+                          <div className="run-context">
+                            <p>TRACE {selectedRun.trace_id}</p>
+                            <small>{selectedRun.status}{liveRun?.id === selectedRun.id ? ` · ${formatMs(state.roundTripMs)} round trip` : ""}</small>
+                          </div>
+                          {renderTraceTimeline(selectedRun)}
+                          <p className="transcript">{selectedRun.transcript ?? "Transcript text was not stored for this legacy run."}</p>
+                          {selectedRun.transcript != null && (
+                            <form className="reference" onSubmit={labelRun}>
+                              <div>
+                                <label htmlFor="reference-text">WHAT I ACTUALLY SAID</label>
+                                <p>Use this label to measure word error rate. The label stays in local SQLite.</p>
+                              </div>
+                              <div>
+                                <textarea id="reference-text" value={referenceText} onChange={(event) => setReferenceInput({ runId: selectedRun.id, text: event.target.value })} required maxLength="2000" rows="3" />
+                                <div className="reference-actions">
+                                  <button type="submit" disabled={referenceStatus.kind === "saving" || !referenceText.trim()}>{referenceStatus.kind === "saving" ? "Saving…" : "Save accuracy label"}</button>
+                                  <strong>{formatRate(selectedRun.word_error_rate)}</strong>
+                                </div>
+                                {selectedRun.reference_words != null && <small>{selectedRun.word_errors} word errors across {selectedRun.reference_words} reference words.</small>}
+                                {referenceStatus.kind === "saved" && <small className="success">Label saved.</small>}
+                                {referenceStatus.kind === "error" && <small className="error" role="alert">{referenceStatus.message}</small>}
+                              </div>
+                            </form>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+              ]))}</tbody>
             </table>
           </div>
         )}
