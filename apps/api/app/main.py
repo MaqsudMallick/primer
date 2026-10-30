@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from datetime import datetime
+import json
 import os
 from pathlib import Path
 import shutil
@@ -7,6 +8,8 @@ import subprocess
 from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Annotated, Any, Iterator, Literal
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -25,6 +28,9 @@ MODEL_PATHS = {
 DEFAULT_WHISPER_MODEL = os.getenv("DEFAULT_WHISPER_MODEL", "small.en")
 if DEFAULT_WHISPER_MODEL not in MODEL_PATHS:
     raise RuntimeError("DEFAULT_WHISPER_MODEL must be base.en or small.en.")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_TIMEOUT_SECONDS = 20
 
 
 class TranscriptionMetrics(BaseModel):
@@ -32,6 +38,7 @@ class TranscriptionMetrics(BaseModel):
     request_read_ms: int
     conversion_ms: int
     transcription_ms: int
+    generation_ms: int
     total_ms: int
 
 
@@ -52,6 +59,8 @@ class TranscriptionResponse(BaseModel):
     request_id: str
     model: str
     text: str
+    response_model: str | None
+    response_text: str
     metrics: TranscriptionMetrics
     spans: list[SpanRecord]
 
@@ -68,6 +77,7 @@ class RunRecord(BaseModel):
     request_read_ms: int
     conversion_ms: int
     transcription_ms: int
+    generation_ms: int | None
     total_ms: int
     audio_bytes: int
     media_type: str
@@ -75,6 +85,8 @@ class RunRecord(BaseModel):
     execution: str
     transcript_characters: int | None
     transcript: str | None
+    response_model: str | None
+    response_text: str | None
     reference_text: str | None
     word_errors: int | None
     reference_words: int | None
@@ -165,6 +177,44 @@ def require_local_tool(name: str) -> str:
     return path
 
 
+def generate_response(text: str) -> str:
+    if not GEMINI_API_KEY:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Gemini is not configured.")
+
+    payload = json.dumps(
+        {
+            "contents": [{"parts": [{"text": text}]}],
+            "systemInstruction": {
+                "parts": [{"text": "You are a concise voice assistant. Reply in one short sentence. Do not use Markdown."}]
+            },
+            "generationConfig": {"maxOutputTokens": 80, "temperature": 0.4},
+            "store": False,
+        }
+    ).encode()
+    request = UrlRequest(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as provider_response:
+            body = json.loads(provider_response.read())
+        response_text = "".join(
+            part.get("text", "")
+            for part in body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        ).strip()
+    except HTTPError as error:
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE if error.code == 429 else status.HTTP_502_BAD_GATEWAY
+        raise HTTPException(status_code, "Gemini could not generate a response.") from error
+    except (AttributeError, IndexError, TypeError, json.JSONDecodeError, TimeoutError, URLError) as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini could not generate a response.") from error
+
+    if not response_text:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini returned an empty response.")
+    return response_text
+
+
 @contextmanager
 def measured_span(
     spans: list[dict[str, Any]],
@@ -226,8 +276,11 @@ async def transcribe(
     request_read_ms = 0
     conversion_ms = 0
     transcription_ms = 0
+    generation_ms = 0
     run_status = "failed"
     text = ""
+    response_text = ""
+    response_model: str | None = None
     model_path = MODEL_PATHS[whisper_model]
 
     try:
@@ -273,10 +326,17 @@ async def transcribe(
                 )
                 text = Path(f"{output}.txt").read_text().strip()
             transcription_ms = round(spans[-1]["duration_ms"])
-            run_status = "completed"
+
+        if text:
+            stage = "agent.generate"
+            response_model = GEMINI_MODEL
+            with measured_span(spans, stage, started, trace_id, root_span_id):
+                response_text = generate_response(text)
+            generation_ms = round(spans[-1]["duration_ms"])
+        run_status = "completed"
     except HTTPException as error:
         log_metric(
-            "transcription.failed",
+            "voice_turn.failed",
             trace_id=trace_id,
             request_id=request_id,
             stage=stage,
@@ -288,7 +348,7 @@ async def transcribe(
         raise
     except subprocess.TimeoutExpired as error:
         log_metric(
-            "transcription.failed",
+            "voice_turn.failed",
             trace_id=trace_id,
             request_id=request_id,
             stage=stage,
@@ -301,7 +361,7 @@ async def transcribe(
         raise HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, "Transcription timed out.") from error
     except (subprocess.CalledProcessError, OSError) as error:
         log_metric(
-            "transcription.failed",
+            "voice_turn.failed",
             trace_id=trace_id,
             request_id=request_id,
             stage=stage,
@@ -313,6 +373,9 @@ async def transcribe(
         )
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Audio processing failed.") from error
     finally:
+        generation_span = next((span for span in reversed(spans) if span["name"] == "agent.generate"), None)
+        if generation_span:
+            generation_ms = round(generation_span["duration_ms"])
         total_ms = round((perf_counter() - started) * 1000)
         stored_run_id = runs.save_run(
             spans,
@@ -325,13 +388,16 @@ async def transcribe(
             request_read_ms=request_read_ms,
             conversion_ms=conversion_ms,
             transcription_ms=transcription_ms,
+            generation_ms=generation_ms,
             total_ms=total_ms,
             audio_bytes=audio_bytes,
             media_type=media_type,
             model=model_path.name,
             execution="cpu",
-            transcript_characters=len(text) if run_status == "completed" else None,
-            transcript=text if run_status == "completed" else None,
+            transcript_characters=len(text) if text else None,
+            transcript=text or None,
+            response_model=response_model,
+            response_text=response_text or None,
         )
 
     metrics = TranscriptionMetrics(
@@ -339,12 +405,13 @@ async def transcribe(
         request_read_ms=request_read_ms,
         conversion_ms=conversion_ms,
         transcription_ms=transcription_ms,
+        generation_ms=generation_ms,
         total_ms=total_ms,
     )
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Trace-ID"] = trace_id
     log_metric(
-        "transcription.completed",
+        "voice_turn.completed",
         trace_id=trace_id,
         request_id=request_id,
         audio_bytes=audio_bytes,
@@ -352,6 +419,8 @@ async def transcribe(
         model=model_path.name,
         execution="cpu",
         transcript_characters=len(text),
+        response_model=response_model,
+        response_characters=len(response_text),
         **metrics.model_dump(),
     )
     return TranscriptionResponse(
@@ -360,6 +429,8 @@ async def transcribe(
         request_id=request_id,
         model=model_path.name,
         text=text,
+        response_model=response_model,
+        response_text=response_text,
         metrics=metrics,
         spans=spans,
     )

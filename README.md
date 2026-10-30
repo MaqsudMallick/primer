@@ -1,6 +1,6 @@
 # Voice agent starter
 
-This project records one browser audio turn, transcribes it with local Whisper, and speaks the transcript.
+This project records one browser audio turn. Local Whisper transcribes it. Gemini writes a response. The browser speaks the response.
 
 ## Run both applications with Docker
 
@@ -10,6 +10,8 @@ Install Docker Desktop. Confirm that these model files exist:
 apps/api/models/ggml-small.en.bin
 apps/api/models/ggml-base.en.bin
 ```
+
+Create a Gemini API key in Google AI Studio. Copy `.env.example` to `.env`. Add the key to `GEMINI_API_KEY`.
 
 Run this command from the repository root:
 
@@ -37,7 +39,7 @@ apps/
 
 ### Browser text-to-speech
 
-The first echo loop uses the browser `speechSynthesis` API. This choice keeps the prototype free and avoids a TTS service or model.
+The first voice turn uses the browser `speechSynthesis` API. This choice keeps the prototype free and avoids a TTS service or model.
 
 Do not treat browser speech synthesis as the production TTS design. It has these limits:
 
@@ -91,14 +93,17 @@ Each successful event includes:
 - Request-body read time
 - FFmpeg conversion time
 - Whisper transcription time
+- Gemini generation time
 - Total backend time
 - Audio byte count
 - Media type
-- Model and execution mode
+- Whisper model, Gemini model, and execution mode
 
 The browser shows one timeline for each backend trace. Each stage is a span. Each span has an exact start time, end time, status, trace ID, span ID, and parent span ID.
 
-The API stores every completed or failed run in SQLite. It stores trace spans, timing, status, media type, audio size, model, and transcript text. It never stores recorded audio.
+The API stores every completed or failed run in SQLite. It stores trace spans, timing, status, media type, audio size, model names, transcript text, and Gemini response text. It never stores recorded audio.
+
+The Gemini free tier can use submitted data to improve Google products. Do not send child speech or other sensitive data during this prototype stage. Use adult test speech only.
 
 Select a run to inspect its timeline. Add the text that you said to calculate word error rate. The Trends table shows P50 and P95 latency for each model. It also shows the aggregate word error rate for labeled runs.
 

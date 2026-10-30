@@ -138,6 +138,8 @@ function App() {
         failure_stage: null,
         model: result.model,
         transcript: result.text,
+        response_model: result.response_model,
+        response_text: result.response_text,
         reference_text: null,
         word_errors: null,
         reference_words: null,
@@ -146,23 +148,24 @@ function App() {
         request_read_ms: result.metrics.request_read_ms,
         conversion_ms: result.metrics.conversion_ms,
         transcription_ms: result.metrics.transcription_ms,
+        generation_ms: result.metrics.generation_ms,
         total_ms: result.metrics.total_ms,
         spans: result.spans,
       };
-      console.info(JSON.stringify({ event: "transcription.rendered", trace_id: result.trace_id, request_id: result.request_id, ...result.metrics }));
+      console.info(JSON.stringify({ event: "voice_turn.rendered", trace_id: result.trace_id, request_id: result.request_id, ...result.metrics }));
       const successState = { kind: "success", run, roundTripMs: result.metrics.roundTripMs };
       setSelectedRunId(result.run_id);
       setDetailPhase("opening");
       setReferenceInput({ runId: result.run_id, text: "" });
       setReferenceStatus({ kind: "idle" });
-      if (result.text.trim() && window.speechSynthesis && window.SpeechSynthesisUtterance) {
-        const utterance = new window.SpeechSynthesisUtterance(result.text);
+      if (result.response_text.trim() && window.speechSynthesis && window.SpeechSynthesisUtterance) {
+        const utterance = new window.SpeechSynthesisUtterance(result.response_text);
         let speechStartedAt = 0;
         utterance.lang = navigator.language || "en-US";
         utterance.onstart = () => {
           speechStartedAt = performance.now();
           console.info(JSON.stringify({
-            event: "echo.speech_started",
+            event: "agent.speech_started",
             trace_id: result.trace_id,
             request_id: result.request_id,
             after_stop_ms: Math.round(speechStartedAt - recordingStoppedRef.current),
@@ -170,7 +173,7 @@ function App() {
         };
         utterance.onend = () => {
           console.info(JSON.stringify({
-            event: "echo.speech_finished",
+            event: "agent.speech_finished",
             trace_id: result.trace_id,
             request_id: result.request_id,
             speech_ms: speechStartedAt ? Math.round(performance.now() - speechStartedAt) : 0,
@@ -181,13 +184,13 @@ function App() {
         };
         utterance.onerror = (event) => {
           console.error(JSON.stringify({
-            event: "echo.speech_failed",
+            event: "agent.speech_failed",
             trace_id: result.trace_id,
             request_id: result.request_id,
             error: event.error,
           }));
           utteranceRef.current = null;
-          setState({ ...successState, speechError: "The browser could not speak the transcript." });
+          setState({ ...successState, speechError: "The browser could not speak the response." });
           buttonRef.current?.focus();
         };
         setState({ kind: "speaking", run, roundTripMs: result.metrics.roundTripMs });
@@ -195,10 +198,10 @@ function App() {
         utteranceRef.current = utterance;
         window.speechSynthesis.speak(utterance);
       } else {
-        setState(result.text.trim() ? { ...successState, speechError: "This browser cannot speak the transcript." } : successState);
+        setState(result.response_text.trim() ? { ...successState, speechError: "This browser cannot speak the response." } : successState);
       }
     } catch (error) {
-      setState({ kind: "error", message: error instanceof Error ? error.message : "Transcription failed." });
+      setState({ kind: "error", message: error instanceof Error ? error.message : "Voice turn failed." });
     } finally {
       setHistoryVersion((version) => version + 1);
       buttonRef.current?.focus();
@@ -280,21 +283,21 @@ function App() {
   const isRecording = state.kind === "recording";
   const isTranscribing = state.kind === "transcribing";
   const isSpeaking = state.kind === "speaking";
-  const status = isRecording ? "Listening" : isTranscribing ? "Transcribing" : isSpeaking ? "Speaking" : "Ready";
+  const status = isRecording ? "Listening" : isTranscribing ? "Processing" : isSpeaking ? "Speaking" : "Ready";
 
   return (
     <main>
       <header>
         <span aria-hidden="true" />
-        <p>VOICE / LOCAL</p>
-        <small>WHISPER {modelName.toUpperCase()}</small>
+        <p>VOICE / ONE TURN</p>
+        <small>WHISPER {modelName.toUpperCase()} · GEMINI</small>
       </header>
 
       <section className="panel">
         <div className="intro">
-          <p className="eyebrow">ONE TURN · LOCAL ECHO</p>
-          <h1>Say one thing.<br />Hear it back.</h1>
-          <p>Whisper transcribes your recording. Your browser speaks the transcript. The API then deletes the audio.</p>
+          <p className="eyebrow">ONE TURN · GEMINI</p>
+          <h1>Say one thing.<br />Hear a response.</h1>
+          <p>Whisper transcribes your recording. Gemini writes a short response. Your browser speaks the response. The API then deletes the audio.</p>
         </div>
         <div className="control">
           <div className={`status ${isRecording ? "recording" : isSpeaking ? "speaking" : ""}`} aria-live="polite">
@@ -310,17 +313,24 @@ function App() {
           <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isTranscribing || isSpeaking}>
             {isRecording ? "Stop and transcribe" : isTranscribing ? "Working…" : isSpeaking ? "Speaking…" : "Start recording"}
           </button>
-          <p className="hint">Speak for a few seconds. Stop the recording to hear the transcript.</p>
+          <p className="hint">Speak for a few seconds. Stop the recording to hear the response.</p>
           {state.kind === "error" && <p className="control-error" role="alert">{state.message}</p>}
           {state.speechError && <p className="control-error" role="alert">{state.speechError}</p>}
         </div>
       </section>
 
+      {liveRun?.response_text && (
+        <section className="latest-reply" aria-live="polite">
+          <p className="eyebrow">AGENT REPLY</p>
+          <p>{liveRun.response_text}</p>
+        </section>
+      )}
+
       <section className="history">
         <div className="section-heading">
           <div>
             <p className="eyebrow">INDIVIDUAL RUNS</p>
-            <p>Select a run to inspect its transcript and trace.</p>
+            <p>Select a run to inspect the voice turn and trace.</p>
           </div>
           <small>LATEST {visibleRuns.length} OF {history.runs.length}</small>
         </div>
@@ -355,9 +365,20 @@ function App() {
                             <small>{selectedRun.status}{liveRun?.id === selectedRun.id ? ` · ${formatMs(state.roundTripMs)} round trip` : ""}</small>
                           </div>
                           {renderTraceTimeline(selectedRun)}
-                          {selectedRun.transcript
-                            ? <p className="transcript">{selectedRun.transcript}</p>
-                            : <p className="transcript-missing">{selectedRun.transcript === null ? "Transcript unavailable for this legacy run." : "No speech was detected."}</p>}
+                          <div className="turn-copy">
+                            <div>
+                              <p className="turn-copy-label">YOU SAID</p>
+                              {selectedRun.transcript
+                                ? <p className="transcript">{selectedRun.transcript}</p>
+                                : <p className="transcript-missing">{selectedRun.transcript === null ? "Transcript unavailable for this legacy run." : "No speech was detected."}</p>}
+                            </div>
+                            {selectedRun.response_text && (
+                              <div>
+                                <p className="turn-copy-label">AGENT</p>
+                                <p className="transcript agent-response">{selectedRun.response_text}</p>
+                              </div>
+                            )}
+                          </div>
                           {selectedRun.transcript != null && (
                             <form className="reference" onSubmit={labelRun}>
                               <div>

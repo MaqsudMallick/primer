@@ -29,6 +29,7 @@ def connect() -> sqlite3.Connection:
             request_read_ms INTEGER NOT NULL,
             conversion_ms INTEGER NOT NULL,
             transcription_ms INTEGER NOT NULL,
+            generation_ms INTEGER,
             total_ms INTEGER NOT NULL,
             audio_bytes INTEGER NOT NULL,
             media_type TEXT NOT NULL,
@@ -36,6 +37,8 @@ def connect() -> sqlite3.Connection:
             execution TEXT NOT NULL,
             transcript_characters INTEGER,
             transcript TEXT,
+            response_model TEXT,
+            response_text TEXT,
             reference_text TEXT,
             word_errors INTEGER,
             reference_words INTEGER,
@@ -48,6 +51,9 @@ def connect() -> sqlite3.Connection:
         "trace_id": "TEXT",
         "root_span_id": "TEXT",
         "transcript": "TEXT",
+        "generation_ms": "INTEGER",
+        "response_model": "TEXT",
+        "response_text": "TEXT",
         "reference_text": "TEXT",
         "word_errors": "INTEGER",
         "reference_words": "INTEGER",
@@ -86,13 +92,15 @@ def save_run(spans: list[dict[str, Any]], **fields: Any) -> int:
             INSERT INTO runs (
                 trace_id, root_span_id, request_id, created_at, status,
                 failure_stage, recording_ms, request_read_ms, conversion_ms,
-                transcription_ms, total_ms, audio_bytes, media_type, model,
-                execution, transcript_characters, transcript
+                transcription_ms, generation_ms, total_ms, audio_bytes,
+                media_type, model, execution, transcript_characters, transcript,
+                response_model, response_text
             ) VALUES (
                 :trace_id, :root_span_id, :request_id, :created_at, :status,
                 :failure_stage, :recording_ms, :request_read_ms, :conversion_ms,
-                :transcription_ms, :total_ms, :audio_bytes, :media_type, :model,
-                :execution, :transcript_characters, :transcript
+                :transcription_ms, :generation_ms, :total_ms, :audio_bytes,
+                :media_type, :model, :execution, :transcript_characters, :transcript,
+                :response_model, :response_text
             )
             """,
             values,

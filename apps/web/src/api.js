@@ -18,7 +18,7 @@ export async function transcribeAudio(blob, recordingMs, requestId, model) {
     },
     body: blob,
   });
-  const result = await readResponse(response, "Transcription failed.");
+  const result = await readResponse(response, "Voice turn failed.");
   return {
     ...result,
     metrics: { ...result.metrics, roundTripMs: Math.round(performance.now() - started) },

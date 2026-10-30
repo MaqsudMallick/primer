@@ -60,4 +60,7 @@ def test_list_runs_migrates_a_duration_only_database(monkeypatch, tmp_path) -> N
     assert len(record["trace_id"]) == 32
     assert len(record["root_span_id"]) == 16
     assert record["transcript"] is None
+    assert record["generation_ms"] is None
+    assert record["response_model"] is None
+    assert record["response_text"] is None
     assert record["spans"] == []

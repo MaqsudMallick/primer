@@ -4,6 +4,7 @@ const LABELS = {
   "audio.prepare": "Audio prepare",
   "audio.convert": "Audio conversion",
   "speech.transcribe": "Whisper",
+  "agent.generate": "Gemini",
   "legacy.uninstrumented": "Uninstrumented",
 };
 
