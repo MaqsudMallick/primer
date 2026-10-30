@@ -25,6 +25,20 @@ export async function transcribeAudio(blob, recordingMs, requestId, model) {
   };
 }
 
+export async function fetchLiveToken() {
+  const response = await fetch(`${API_URL}/api/live/token`, { method: "POST" });
+  return readResponse(response, "The Live session could not start.");
+}
+
+export async function saveLiveRun(run) {
+  const response = await fetch(`${API_URL}/api/live/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(run),
+  });
+  return readResponse(response, "The Live run could not be saved.");
+}
+
 export async function fetchRunData() {
   const [runsResponse, summaryResponse] = await Promise.all([
     fetch(`${API_URL}/api/runs`),

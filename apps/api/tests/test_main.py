@@ -98,6 +98,79 @@ def test_generate_response_hides_provider_errors(monkeypatch) -> None:
     assert error.value.status_code == 502
 
 
+def test_live_token_is_short_lived_and_single_use(monkeypatch) -> None:
+    class ProviderResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            pass
+
+        def read(self) -> bytes:
+            return b'{"name":"short-lived-token"}'
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return ProviderResponse()
+
+    monkeypatch.setattr(main, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(main, "urlopen", fake_urlopen)
+
+    response = client.post("/api/live/token")
+
+    assert response.status_code == 200
+    assert response.json() == {"token": "short-lived-token", "model": main.GEMINI_LIVE_MODEL}
+    payload = json.loads(captured["request"].data)
+    assert payload["uses"] == 1
+    assert payload["expireTime"]
+    assert payload["newSessionExpireTime"]
+    assert captured["timeout"] == main.GEMINI_TIMEOUT_SECONDS
+
+
+def test_live_run_stores_client_trace() -> None:
+    response = client.post(
+        "/api/live/runs",
+        json={
+            "request_id": "live-request-1",
+            "recording_ms": 900,
+            "generation_ms": 240,
+            "total_ms": 1700,
+            "audio_bytes": 28800,
+            "transcript": "Hello Gemini.",
+            "response_text": "Hello there.",
+            "spans": [
+                {"name": "live.token", "started_ms": 0, "ended_ms": 80, "status": "ok"},
+                {"name": "live.connect", "started_ms": 80, "ended_ms": 300, "status": "ok"},
+                {"name": "audio.stream", "started_ms": 300, "ended_ms": 1200, "status": "ok"},
+                {"name": "agent.first_audio", "started_ms": 1200, "ended_ms": 1440, "status": "ok"},
+                {"name": "audio.playback", "started_ms": 1440, "ended_ms": 1700, "status": "ok"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    run = response.json()
+    assert run["architecture"] == "native_s2s"
+    assert run["model"] == main.GEMINI_LIVE_MODEL
+    assert run["transcription_ms"] == 0
+    assert run["generation_ms"] == 240
+    assert run["transcript"] == "Hello Gemini."
+    assert run["response_text"] == "Hello there."
+    assert [span["name"] for span in run["spans"]] == [
+        "live.token",
+        "live.connect",
+        "audio.stream",
+        "agent.first_audio",
+        "audio.playback",
+    ]
+    summary = client.get("/api/runs/summary").json()["models"][0]
+    assert summary["architecture"] == "native_s2s"
+    assert summary["p50_generation_ms"] == 240
+
+
 def test_success_returns_and_logs_metrics(monkeypatch, tmp_path) -> None:
     model = tmp_path / "model.bin"
     model.write_bytes(b"model")
@@ -150,6 +223,7 @@ def test_success_returns_and_logs_metrics(monkeypatch, tmp_path) -> None:
     stored_run = client.get("/api/runs").json()[0]
     assert stored_run["request_id"] == "test-request-1"
     assert stored_run["status"] == "completed"
+    assert stored_run["architecture"] == "cascaded"
     assert stored_run["recording_ms"] == 1250
     assert stored_run["transcript_characters"] == 12
     assert stored_run["transcript"] == "Hello world."

@@ -1,6 +1,9 @@
 # Voice agent starter
 
-This project records one browser audio turn. Local Whisper transcribes it. Gemini writes a response. The browser speaks the response.
+This project provides two voice-agent paths:
+
+- Cascaded: Local Whisper transcribes speech, Gemini writes a response, and the browser speaks it.
+- Native S2S: Gemini 3.8 Live receives speech and streams response audio.
 
 ## Run both applications with Docker
 
@@ -52,6 +55,14 @@ Do not treat browser speech synthesis as the production TTS design. It has these
 
 Replace browser speech synthesis with a dedicated TTS model or service when the product needs a consistent voice, streaming audio, interruption support, or complete observability.
 
+### Gemini 3.8 Live
+
+The native S2S path uses a direct browser-to-Gemini WebSocket. FastAPI creates a one-use, short-lived token and returns the configured `gemini-3.8-live` model. The permanent Gemini API key stays on FastAPI.
+
+The browser sends PCM audio to Gemini and plays the returned PCM audio. Whisper and browser text-to-speech do not run in this path. Use headphones to prevent the microphone from capturing the Gemini response.
+
+The token endpoint has no application login in this local prototype. Add user authentication, model enforcement, and rate limits before deployment.
+
 ## Run the API
 
 ```sh
@@ -84,7 +95,7 @@ The API removes temporary audio files after each request.
 
 ## Observability
 
-The API writes one structured JSON event to standard output for each completed or failed transcription. It does not log audio or transcript text.
+The API writes one structured JSON event to standard output for each completed or failed voice turn. It does not log audio or transcript text.
 
 Each successful event includes:
 
@@ -100,6 +111,8 @@ Each successful event includes:
 - Whisper model, Gemini model, and execution mode
 
 The browser shows one timeline for each backend trace. Each stage is a span. Each span has an exact start time, end time, status, trace ID, span ID, and parent span ID.
+
+Native S2S runs include token, connection, audio stream, first-audio, and playback spans. The generation metric measures the time from recording stop to the first response audio.
 
 The API stores every completed or failed run in SQLite. It stores trace spans, timing, status, media type, audio size, model names, transcript text, and Gemini response text. It never stores recorded audio.
 

@@ -5,6 +5,7 @@ services:
     environment:
       DEFAULT_WHISPER_MODEL: small.en
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-gemini-3.8-live}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       RUNS_DB_PATH: /app/data/runs.db
     ports:

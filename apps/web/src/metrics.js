@@ -5,6 +5,11 @@ const LABELS = {
   "audio.convert": "Audio conversion",
   "speech.transcribe": "Whisper",
   "agent.generate": "Gemini",
+  "live.token": "Live token",
+  "live.connect": "Live connection",
+  "audio.stream": "Audio stream",
+  "agent.first_audio": "First audio",
+  "audio.playback": "Audio playback",
   "legacy.uninstrumented": "Uninstrumented",
 };
 

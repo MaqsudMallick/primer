@@ -24,6 +24,7 @@ def connect() -> sqlite3.Connection:
             request_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
             status TEXT NOT NULL,
+            architecture TEXT,
             failure_stage TEXT,
             recording_ms INTEGER,
             request_read_ms INTEGER NOT NULL,
@@ -50,6 +51,7 @@ def connect() -> sqlite3.Connection:
     for name, data_type in {
         "trace_id": "TEXT",
         "root_span_id": "TEXT",
+        "architecture": "TEXT",
         "transcript": "TEXT",
         "generation_ms": "INTEGER",
         "response_model": "TEXT",
@@ -91,13 +93,13 @@ def save_run(spans: list[dict[str, Any]], **fields: Any) -> int:
             """
             INSERT INTO runs (
                 trace_id, root_span_id, request_id, created_at, status,
-                failure_stage, recording_ms, request_read_ms, conversion_ms,
+                architecture, failure_stage, recording_ms, request_read_ms, conversion_ms,
                 transcription_ms, generation_ms, total_ms, audio_bytes,
                 media_type, model, execution, transcript_characters, transcript,
                 response_model, response_text
             ) VALUES (
                 :trace_id, :root_span_id, :request_id, :created_at, :status,
-                :failure_stage, :recording_ms, :request_read_ms, :conversion_ms,
+                :architecture, :failure_stage, :recording_ms, :request_read_ms, :conversion_ms,
                 :transcription_ms, :generation_ms, :total_ms, :audio_bytes,
                 :media_type, :model, :execution, :transcript_characters, :transcript,
                 :response_model, :response_text
@@ -227,11 +229,18 @@ def get_summary() -> dict[str, Any]:
         models.append(
             {
                 "model": model,
+                "architecture": model_rows[0]["architecture"],
                 "runs": len(model_rows),
                 "p50_total_ms": percentile([row["total_ms"] for row in model_rows], 0.5),
                 "p95_total_ms": percentile([row["total_ms"] for row in model_rows], 0.95),
                 "p50_transcription_ms": percentile([row["transcription_ms"] for row in model_rows], 0.5),
                 "p95_transcription_ms": percentile([row["transcription_ms"] for row in model_rows], 0.95),
+                "p50_generation_ms": percentile(
+                    [row["generation_ms"] for row in model_rows if row["generation_ms"] is not None], 0.5
+                ),
+                "p95_generation_ms": percentile(
+                    [row["generation_ms"] for row in model_rows if row["generation_ms"] is not None], 0.95
+                ),
                 "labeled_runs": len(labeled),
                 "word_error_rate": round(word_errors / reference_words, 4) if reference_words else None,
             }

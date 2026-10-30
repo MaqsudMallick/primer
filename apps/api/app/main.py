@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -30,6 +30,7 @@ if DEFAULT_WHISPER_MODEL not in MODEL_PATHS:
     raise RuntimeError("DEFAULT_WHISPER_MODEL must be base.en or small.en.")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live")
 GEMINI_TIMEOUT_SECONDS = 20
 
 
@@ -72,6 +73,7 @@ class RunRecord(BaseModel):
     request_id: str
     created_at: datetime
     status: Literal["completed", "failed"]
+    architecture: Literal["cascaded", "native_s2s"] | None
     failure_stage: str | None
     recording_ms: int | None
     request_read_ms: int
@@ -96,11 +98,14 @@ class RunRecord(BaseModel):
 
 class ModelSummary(BaseModel):
     model: str
+    architecture: Literal["cascaded", "native_s2s"] | None
     runs: int
     p50_total_ms: int | None
     p95_total_ms: int | None
     p50_transcription_ms: int | None
     p95_transcription_ms: int | None
+    p50_generation_ms: int | None
+    p95_generation_ms: int | None
     labeled_runs: int
     word_error_rate: float | None
 
@@ -115,6 +120,29 @@ class RunSummary(BaseModel):
 
 class ReferenceInput(BaseModel):
     text: str = Field(min_length=1, max_length=2_000)
+
+
+class LiveTokenResponse(BaseModel):
+    token: str
+    model: str
+
+
+class ClientSpanInput(BaseModel):
+    name: Literal["live.token", "live.connect", "audio.stream", "agent.first_audio", "audio.playback"]
+    started_ms: float = Field(ge=0, le=900_000)
+    ended_ms: float = Field(ge=0, le=900_000)
+    status: Literal["ok", "error"] = "ok"
+
+
+class LiveRunInput(BaseModel):
+    request_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    recording_ms: int = Field(ge=0, le=300_000)
+    generation_ms: int = Field(ge=0, le=300_000)
+    total_ms: int = Field(ge=0, le=900_000)
+    audio_bytes: int = Field(ge=0, le=100_000_000)
+    transcript: str = Field(max_length=10_000)
+    response_text: str = Field(max_length=10_000)
+    spans: list[ClientSpanInput] = Field(min_length=1, max_length=8)
 
 
 app = FastAPI(title="Voice Agent Starter API")
@@ -213,6 +241,98 @@ def generate_response(text: str) -> str:
     if not response_text:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini returned an empty response.")
     return response_text
+
+
+def create_live_token() -> str:
+    if not GEMINI_API_KEY:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Gemini is not configured.")
+
+    now = datetime.now(UTC)
+    payload = json.dumps(
+        {
+            "uses": 1,
+            "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+            "newSessionExpireTime": (now + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        }
+    ).encode()
+    request = UrlRequest(
+        "https://generativelanguage.googleapis.com/v1beta/auth_tokens",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as provider_response:
+            token = json.loads(provider_response.read()).get("name", "")
+    except (HTTPError, URLError, json.JSONDecodeError, TimeoutError) as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini could not create a Live token.") from error
+    if not token:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini returned an empty Live token.")
+    return token
+
+
+@app.post("/api/live/token", response_model=LiveTokenResponse)
+def get_live_token() -> LiveTokenResponse:
+    # shortcut: This local prototype has no application login; add authentication before deployment.
+    return LiveTokenResponse(token=create_live_token(), model=GEMINI_LIVE_MODEL)
+
+
+@app.post("/api/live/runs", response_model=RunRecord)
+def save_live_run(body: LiveRunInput) -> dict[str, Any]:
+    trace_id = uuid4().hex
+    root_span_id = uuid4().hex[:16]
+    spans = []
+    for span in body.spans:
+        if span.ended_ms < span.started_ms:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A span cannot end before it starts.")
+        spans.append(
+            {
+                "trace_id": trace_id,
+                "span_id": uuid4().hex[:16],
+                "parent_span_id": root_span_id,
+                "name": span.name,
+                "started_ms": span.started_ms,
+                "ended_ms": span.ended_ms,
+                "status": span.status,
+            }
+        )
+    run_id = runs.save_run(
+        spans,
+        trace_id=trace_id,
+        root_span_id=root_span_id,
+        request_id=body.request_id,
+        status="completed",
+        architecture="native_s2s",
+        failure_stage=None,
+        recording_ms=body.recording_ms,
+        request_read_ms=0,
+        conversion_ms=0,
+        transcription_ms=0,
+        generation_ms=body.generation_ms,
+        total_ms=body.total_ms,
+        audio_bytes=body.audio_bytes,
+        media_type="audio/pcm",
+        model=GEMINI_LIVE_MODEL,
+        execution="cloud",
+        transcript_characters=len(body.transcript) or None,
+        transcript=body.transcript or None,
+        response_model=GEMINI_LIVE_MODEL,
+        response_text=body.response_text or None,
+    )
+    log_metric(
+        "live_turn.completed",
+        trace_id=trace_id,
+        request_id=body.request_id,
+        model=GEMINI_LIVE_MODEL,
+        recording_ms=body.recording_ms,
+        generation_ms=body.generation_ms,
+        total_ms=body.total_ms,
+        audio_bytes=body.audio_bytes,
+    )
+    record = runs.get_run(run_id)
+    if record is None:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "The Live run could not be stored.")
+    return record
 
 
 @contextmanager
@@ -383,6 +503,7 @@ async def transcribe(
             root_span_id=root_span_id,
             request_id=request_id,
             status=run_status,
+            architecture="cascaded",
             failure_stage=None if run_status == "completed" else stage,
             recording_ms=recording_ms,
             request_read_ms=request_read_ms,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchRunData, saveReference, transcribeAudio } from "./api.js";
+import { fetchLiveToken, fetchRunData, saveLiveRun, saveReference, transcribeAudio } from "./api.js";
+import { createLiveTurn } from "./live.js";
 import { buildLegacySpans, slowestSpan, spanLabel } from "./metrics.js";
 
 const MODEL_NAME = import.meta.env.VITE_WHISPER_MODEL ?? "small.en";
@@ -35,10 +36,10 @@ function renderTraceTimeline(run) {
   const ticks = [0, 0.25, 0.5, 0.75, 1];
 
   return (
-    <div className="trace" aria-label="Backend trace timeline">
+    <div className="trace" aria-label="Voice turn trace timeline">
       <div className="trace-heading">
         <div>
-          <p className="eyebrow">BACKEND TRACE</p>
+          <p className="eyebrow">TURN TRACE</p>
           <small>{exact ? "Exact span timestamps" : "Estimated from duration-only legacy data"}</small>
         </div>
         <strong>{formatMs(totalMs)} total</strong>
@@ -81,6 +82,7 @@ function renderTraceTimeline(run) {
 
 function App() {
   const [state, setState] = useState({ kind: "idle" });
+  const [architecture, setArchitecture] = useState("cascaded");
   const [modelName, setModelName] = useState(MODEL_NAME);
   const [history, setHistory] = useState({ kind: "loading", runs: [], summary: null });
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -90,6 +92,7 @@ function App() {
   const [referenceInput, setReferenceInput] = useState({ runId: null, text: "" });
   const [referenceStatus, setReferenceStatus] = useState({ kind: "idle" });
   const recorderRef = useRef(null);
+  const liveSessionRef = useRef(null);
   const utteranceRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -100,6 +103,7 @@ function App() {
 
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
+    liveSessionRef.current?.close();
     window.speechSynthesis?.cancel();
     utteranceRef.current = null;
   }, []);
@@ -119,7 +123,9 @@ function App() {
     ?? (liveRun?.id === selectedRunId ? liveRun : null);
   const visibleRuns = showAllRuns ? history.runs : history.runs.slice(0, RECENT_RUN_COUNT);
   const labeledRuns = history.summary?.models.reduce((total, model) => total + model.labeled_runs, 0) ?? 0;
-  const maxP95Ms = Math.max(...(history.summary?.models.map((model) => model.p95_transcription_ms ?? 0) ?? []), 1);
+  const maxP95Ms = Math.max(...(history.summary?.models.map((model) => (
+    model.architecture === "native_s2s" ? model.p95_generation_ms : model.p95_transcription_ms
+  ) ?? 0) ?? []), 1);
 
   const referenceText = referenceInput.runId === selectedRun?.id
     ? referenceInput.text
@@ -135,6 +141,7 @@ function App() {
         request_id: result.request_id,
         created_at: new Date().toISOString(),
         status: "completed",
+        architecture: "cascaded",
         failure_stage: null,
         model: result.model,
         transcript: result.text,
@@ -230,7 +237,59 @@ function App() {
     }
   }
 
+  async function completeLiveTurn(result, requestId) {
+    try {
+      const run = await saveLiveRun({ request_id: requestId, ...result });
+      setState({ kind: "success", run, roundTripMs: result.total_ms });
+      setSelectedRunId(run.id);
+      setDetailPhase("opening");
+      setReferenceInput({ runId: run.id, text: "" });
+      setReferenceStatus({ kind: "idle" });
+      console.info(JSON.stringify({
+        event: "live_turn.rendered",
+        trace_id: run.trace_id,
+        request_id: requestId,
+        recording_ms: result.recording_ms,
+        generation_ms: result.generation_ms,
+        total_ms: result.total_ms,
+      }));
+    } catch (error) {
+      setState({ kind: "error", message: error instanceof Error ? error.message : "The Live run failed." });
+    } finally {
+      liveSessionRef.current = null;
+      setHistoryVersion((version) => version + 1);
+      buttonRef.current?.focus();
+    }
+  }
+
+  function startLiveRecording() {
+    const requestId = crypto.randomUUID();
+    requestIdRef.current = requestId;
+    setState({ kind: "connecting" });
+    liveSessionRef.current = createLiveTurn({
+      fetchToken: fetchLiveToken,
+      onReady: () => setState({ kind: "recording" }),
+      onSpeaking: () => setState({ kind: "speaking" }),
+      onComplete: (result) => completeLiveTurn(result, requestId),
+      onError: (error) => {
+        liveSessionRef.current = null;
+        setState({ kind: "error", message: error.message });
+        buttonRef.current?.focus();
+      },
+    });
+  }
+
+  function startTurn() {
+    if (architecture === "native_s2s") startLiveRecording();
+    else startRecording();
+  }
+
   function stopRecording() {
+    if (architecture === "native_s2s") {
+      setState({ kind: "transcribing" });
+      liveSessionRef.current?.stop();
+      return;
+    }
     recordingStoppedRef.current = performance.now();
     recorderRef.current?.stop();
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -283,37 +342,51 @@ function App() {
   const isRecording = state.kind === "recording";
   const isTranscribing = state.kind === "transcribing";
   const isSpeaking = state.kind === "speaking";
-  const status = isRecording ? "Listening" : isTranscribing ? "Processing" : isSpeaking ? "Speaking" : "Ready";
+  const isConnecting = state.kind === "connecting";
+  const isBusy = isRecording || isTranscribing || isSpeaking || isConnecting;
+  const status = isConnecting ? "Connecting" : isRecording ? "Listening" : isTranscribing ? "Processing" : isSpeaking ? "Speaking" : "Ready";
+  const isLive = architecture === "native_s2s";
 
   return (
     <main>
       <header>
         <span aria-hidden="true" />
         <p>VOICE / ONE TURN</p>
-        <small>WHISPER {modelName.toUpperCase()} · GEMINI</small>
+        <small>{isLive ? "GEMINI 3.8 LIVE" : `WHISPER ${modelName.toUpperCase()} · GEMINI`}</small>
       </header>
 
       <section className="panel">
         <div className="intro">
-          <p className="eyebrow">ONE TURN · GEMINI</p>
+          <p className="eyebrow">ONE TURN · {isLive ? "NATIVE S2S" : "CASCADED"}</p>
           <h1>Say one thing.<br />Hear a response.</h1>
-          <p>Whisper transcribes your recording. Gemini writes a short response. Your browser speaks the response. The API then deletes the audio.</p>
+          <p>{isLive
+            ? "Gemini 3.8 Live receives speech and returns speech. Whisper and browser text-to-speech do not run."
+            : "Whisper transcribes your recording. Gemini writes a short response. Your browser speaks the response. The API then deletes the audio."}</p>
         </div>
         <div className="control">
           <div className={`status ${isRecording ? "recording" : isSpeaking ? "speaking" : ""}`} aria-live="polite">
             <span aria-hidden="true" />{status}
           </div>
           <label className="model-choice">
-            <span>Model</span>
-            <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={isRecording || isTranscribing || isSpeaking}>
-              <option value="base.en">Base.en · faster</option>
-              <option value="small.en">Small.en · more accurate</option>
+            <span>Architecture</span>
+            <select value={architecture} onChange={(event) => setArchitecture(event.target.value)} disabled={isBusy}>
+              <option value="cascaded">Cascaded · Whisper + Gemini + browser TTS</option>
+              <option value="native_s2s">Native S2S · Gemini 3.8 Live</option>
             </select>
           </label>
-          <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isTranscribing || isSpeaking}>
-            {isRecording ? "Stop and transcribe" : isTranscribing ? "Working…" : isSpeaking ? "Speaking…" : "Start recording"}
+          {!isLive && (
+            <label className="model-choice">
+              <span>Whisper</span>
+              <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={isBusy}>
+                <option value="base.en">Base.en · faster</option>
+                <option value="small.en">Small.en · more accurate</option>
+              </select>
+            </label>
+          )}
+          <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startTurn} disabled={isConnecting || isTranscribing || isSpeaking}>
+            {isConnecting ? "Connecting…" : isRecording ? "Stop recording" : isTranscribing ? "Working…" : isSpeaking ? "Speaking…" : "Start recording"}
           </button>
-          <p className="hint">Speak for a few seconds. Stop the recording to hear the response.</p>
+          <p className="hint">{isLive ? "Use headphones. Speak, then stop the recording to send the turn." : "Speak for a few seconds. Stop the recording to hear the response."}</p>
           {state.kind === "error" && <p className="control-error" role="alert">{state.message}</p>}
           {state.speechError && <p className="control-error" role="alert">{state.speechError}</p>}
         </div>
@@ -431,8 +504,11 @@ function App() {
             </div>
             <div className="model-benchmarks">
               {history.summary.models.map((model) => {
-                const p50Percent = ((model.p50_transcription_ms ?? 0) / maxP95Ms) * 100;
-                const p95Percent = ((model.p95_transcription_ms ?? 0) / maxP95Ms) * 100;
+                const isNative = model.architecture === "native_s2s";
+                const p50 = isNative ? model.p50_generation_ms : model.p50_transcription_ms;
+                const p95 = isNative ? model.p95_generation_ms : model.p95_transcription_ms;
+                const p50Percent = ((p50 ?? 0) / maxP95Ms) * 100;
+                const p95Percent = ((p95 ?? 0) / maxP95Ms) * 100;
                 return (
                   <article className="model-benchmark" key={model.model}>
                     <div className="benchmark-heading">
@@ -440,15 +516,15 @@ function App() {
                       <small>{model.runs}-run aggregate</small>
                     </div>
                     <div className="benchmark-primary">
-                      <strong>{formatMs(model.p50_transcription_ms)}</strong>
-                      <span>P50 Whisper time</span>
+                      <strong>{formatMs(p50)}</strong>
+                      <span>{isNative ? "P50 stop to first audio" : "P50 Whisper time"}</span>
                     </div>
-                    <div className="benchmark-track" role="img" aria-label={`Median ${formatMs(model.p50_transcription_ms)}. P95 ${formatMs(model.p95_transcription_ms)}.`}>
+                    <div className="benchmark-track" role="img" aria-label={`Median ${formatMs(p50)}. P95 ${formatMs(p95)}.`}>
                       <span style={{ width: `${p95Percent}%` }} />
                       <i style={{ left: `${p50Percent}%` }} />
                     </div>
                     <dl>
-                      <div><dt>P95</dt><dd>{formatMs(model.p95_transcription_ms)}</dd></div>
+                      <div><dt>P95</dt><dd>{formatMs(p95)}</dd></div>
                       <div><dt>Accuracy</dt><dd>{model.word_error_rate == null ? "Needs labels" : `${formatRate(model.word_error_rate)} WER`}</dd></div>
                     </dl>
                   </article>
