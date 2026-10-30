@@ -90,13 +90,19 @@ function App() {
   const [referenceInput, setReferenceInput] = useState({ runId: null, text: "" });
   const [referenceStatus, setReferenceStatus] = useState({ kind: "idle" });
   const recorderRef = useRef(null);
+  const utteranceRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
   const buttonRef = useRef(null);
   const recordingStartedRef = useRef(0);
+  const recordingStoppedRef = useRef(0);
   const requestIdRef = useRef("");
 
-  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    window.speechSynthesis?.cancel();
+    utteranceRef.current = null;
+  }, []);
   useEffect(() => {
     let active = true;
     fetchRunData()
@@ -108,7 +114,7 @@ function App() {
     return () => { active = false; };
   }, [historyVersion]);
 
-  const liveRun = state.kind === "success" ? state.run : null;
+  const liveRun = state.kind === "success" || state.kind === "speaking" ? state.run : null;
   const selectedRun = history.runs.find((run) => run.id === selectedRunId)
     ?? (liveRun?.id === selectedRunId ? liveRun : null);
   const visibleRuns = showAllRuns ? history.runs : history.runs.slice(0, RECENT_RUN_COUNT);
@@ -144,11 +150,53 @@ function App() {
         spans: result.spans,
       };
       console.info(JSON.stringify({ event: "transcription.rendered", trace_id: result.trace_id, request_id: result.request_id, ...result.metrics }));
-      setState({ kind: "success", run, roundTripMs: result.metrics.roundTripMs });
+      const successState = { kind: "success", run, roundTripMs: result.metrics.roundTripMs };
       setSelectedRunId(result.run_id);
       setDetailPhase("opening");
       setReferenceInput({ runId: result.run_id, text: "" });
       setReferenceStatus({ kind: "idle" });
+      if (result.text.trim() && window.speechSynthesis && window.SpeechSynthesisUtterance) {
+        const utterance = new window.SpeechSynthesisUtterance(result.text);
+        let speechStartedAt = 0;
+        utterance.lang = navigator.language || "en-US";
+        utterance.onstart = () => {
+          speechStartedAt = performance.now();
+          console.info(JSON.stringify({
+            event: "echo.speech_started",
+            trace_id: result.trace_id,
+            request_id: result.request_id,
+            after_stop_ms: Math.round(speechStartedAt - recordingStoppedRef.current),
+          }));
+        };
+        utterance.onend = () => {
+          console.info(JSON.stringify({
+            event: "echo.speech_finished",
+            trace_id: result.trace_id,
+            request_id: result.request_id,
+            speech_ms: speechStartedAt ? Math.round(performance.now() - speechStartedAt) : 0,
+          }));
+          utteranceRef.current = null;
+          setState(successState);
+          buttonRef.current?.focus();
+        };
+        utterance.onerror = (event) => {
+          console.error(JSON.stringify({
+            event: "echo.speech_failed",
+            trace_id: result.trace_id,
+            request_id: result.request_id,
+            error: event.error,
+          }));
+          utteranceRef.current = null;
+          setState({ ...successState, speechError: "The browser could not speak the transcript." });
+          buttonRef.current?.focus();
+        };
+        setState({ kind: "speaking", run, roundTripMs: result.metrics.roundTripMs });
+        window.speechSynthesis.cancel();
+        utteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setState(result.text.trim() ? { ...successState, speechError: "This browser cannot speak the transcript." } : successState);
+      }
     } catch (error) {
       setState({ kind: "error", message: error instanceof Error ? error.message : "Transcription failed." });
     } finally {
@@ -180,6 +228,7 @@ function App() {
   }
 
   function stopRecording() {
+    recordingStoppedRef.current = performance.now();
     recorderRef.current?.stop();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     recorderRef.current = null;
@@ -230,7 +279,8 @@ function App() {
 
   const isRecording = state.kind === "recording";
   const isTranscribing = state.kind === "transcribing";
-  const status = isRecording ? "Listening" : isTranscribing ? "Transcribing" : "Ready";
+  const isSpeaking = state.kind === "speaking";
+  const status = isRecording ? "Listening" : isTranscribing ? "Transcribing" : isSpeaking ? "Speaking" : "Ready";
 
   return (
     <main>
@@ -242,75 +292,37 @@ function App() {
 
       <section className="panel">
         <div className="intro">
-          <p className="eyebrow">ONE TURN · LOCAL TRANSCRIPTION</p>
-          <h1>Say one thing.<br />Inspect every stage.</h1>
-          <p>The API deletes the audio after transcription. It stores the transcript and trace in local SQLite.</p>
+          <p className="eyebrow">ONE TURN · LOCAL ECHO</p>
+          <h1>Say one thing.<br />Hear it back.</h1>
+          <p>Whisper transcribes your recording. Your browser speaks the transcript. The API then deletes the audio.</p>
         </div>
         <div className="control">
-          <div className={`status ${isRecording ? "recording" : ""}`} aria-live="polite">
+          <div className={`status ${isRecording ? "recording" : isSpeaking ? "speaking" : ""}`} aria-live="polite">
             <span aria-hidden="true" />{status}
           </div>
           <label className="model-choice">
             <span>Model</span>
-            <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={isRecording || isTranscribing}>
+            <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={isRecording || isTranscribing || isSpeaking}>
               <option value="base.en">Base.en · faster</option>
               <option value="small.en">Small.en · more accurate</option>
             </select>
           </label>
-          <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isTranscribing}>
-            {isRecording ? "Stop and transcribe" : isTranscribing ? "Working…" : "Start recording"}
+          <button ref={buttonRef} type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isTranscribing || isSpeaking}>
+            {isRecording ? "Stop and transcribe" : isTranscribing ? "Working…" : isSpeaking ? "Speaking…" : "Start recording"}
           </button>
-          <p className="hint">Speak for a few seconds. Then stop the recording.</p>
+          <p className="hint">Speak for a few seconds. Stop the recording to hear the transcript.</p>
           {state.kind === "error" && <p className="control-error" role="alert">{state.message}</p>}
+          {state.speechError && <p className="control-error" role="alert">{state.speechError}</p>}
         </div>
-      </section>
-
-      <section className="trends">
-        <div className="section-heading">
-          <p className="eyebrow">PERFORMANCE</p>
-          <small>{history.summary && history.summary.total_runs < 20 ? "EARLY SAMPLE · USE WITH CARE" : "ALL STORED RUNS"}</small>
-        </div>
-        {history.summary && (
-          <>
-            <div className="signal-strip">
-              <div><strong>{history.summary.total_runs}</strong><span>Runs</span></div>
-              <div><strong>{formatRate(history.summary.success_rate)}</strong><span>Successful</span></div>
-              <div><strong>{labeledRuns}</strong><span>Accuracy labels</span></div>
-            </div>
-            <div className="model-benchmarks">
-              {history.summary.models.map((model) => {
-                const p50Percent = ((model.p50_transcription_ms ?? 0) / maxP95Ms) * 100;
-                const p95Percent = ((model.p95_transcription_ms ?? 0) / maxP95Ms) * 100;
-                return (
-                  <article className="model-benchmark" key={model.model}>
-                    <div className="benchmark-heading">
-                      <h2>{formatModelName(model.model)}</h2>
-                      <small>{model.runs} {model.runs === 1 ? "run" : "runs"}</small>
-                    </div>
-                    <div className="benchmark-primary">
-                      <strong>{formatMs(model.p50_transcription_ms)}</strong>
-                      <span>Median Whisper time</span>
-                    </div>
-                    <div className="benchmark-track" role="img" aria-label={`Median ${formatMs(model.p50_transcription_ms)}. P95 ${formatMs(model.p95_transcription_ms)}.`}>
-                      <span style={{ width: `${p95Percent}%` }} />
-                      <i style={{ left: `${p50Percent}%` }} />
-                    </div>
-                    <dl>
-                      <div><dt>P95</dt><dd>{formatMs(model.p95_transcription_ms)}</dd></div>
-                      <div><dt>Accuracy</dt><dd>{model.word_error_rate == null ? "Needs labels" : `${formatRate(model.word_error_rate)} WER`}</dd></div>
-                    </dl>
-                  </article>
-                );
-              })}
-            </div>
-          </>
-        )}
       </section>
 
       <section className="history">
         <div className="section-heading">
-          <p className="eyebrow">RECENT RUNS</p>
-          <small>{visibleRuns.length} OF {history.runs.length}</small>
+          <div>
+            <p className="eyebrow">INDIVIDUAL RUNS</p>
+            <p>Select a run to inspect its transcript and trace.</p>
+          </div>
+          <small>LATEST {visibleRuns.length} OF {history.runs.length}</small>
         </div>
         {history.kind === "loading" && <p className="history-note">Loading stored runs…</p>}
         {history.kind === "error" && <p className="history-note error">Run history is unavailable.</p>}
@@ -329,7 +341,7 @@ function App() {
                   >
                     <time className="run-time" dateTime={run.created_at}>{formatRunTime(run.created_at)}</time>
                     <span className="run-model">{formatModelName(run.model)}</span>
-                    <span className="run-latency"><small>Total</small><strong>{formatMs(run.total_ms)}</strong></span>
+                    <span className="run-latency"><small>This run</small><strong>{formatMs(run.total_ms)}</strong></span>
                     <span className="run-accuracy">{run.word_error_rate == null ? "" : `${formatRate(run.word_error_rate)} WER`}</span>
                     <span className="run-toggle" aria-hidden="true">+</span>
                   </button>
@@ -377,6 +389,51 @@ function App() {
                 {showAllRuns ? `Show recent ${RECENT_RUN_COUNT}` : `Show all ${history.runs.length}`}
               </button>
             )}
+          </>
+        )}
+      </section>
+
+      <section className="trends">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">AGGREGATE BY MODEL</p>
+            <p>P50 and P95 summarize all stored runs for each model.</p>
+          </div>
+          <small>{history.summary && history.summary.total_runs < 20 ? "EARLY SAMPLE · USE WITH CARE" : "ALL STORED RUNS"}</small>
+        </div>
+        {history.summary && (
+          <>
+            <div className="signal-strip">
+              <div><strong>{history.summary.total_runs}</strong><span>Runs</span></div>
+              <div><strong>{formatRate(history.summary.success_rate)}</strong><span>Successful</span></div>
+              <div><strong>{labeledRuns}</strong><span>Accuracy labels</span></div>
+            </div>
+            <div className="model-benchmarks">
+              {history.summary.models.map((model) => {
+                const p50Percent = ((model.p50_transcription_ms ?? 0) / maxP95Ms) * 100;
+                const p95Percent = ((model.p95_transcription_ms ?? 0) / maxP95Ms) * 100;
+                return (
+                  <article className="model-benchmark" key={model.model}>
+                    <div className="benchmark-heading">
+                      <h2>{formatModelName(model.model)}</h2>
+                      <small>{model.runs}-run aggregate</small>
+                    </div>
+                    <div className="benchmark-primary">
+                      <strong>{formatMs(model.p50_transcription_ms)}</strong>
+                      <span>P50 Whisper time</span>
+                    </div>
+                    <div className="benchmark-track" role="img" aria-label={`Median ${formatMs(model.p50_transcription_ms)}. P95 ${formatMs(model.p95_transcription_ms)}.`}>
+                      <span style={{ width: `${p95Percent}%` }} />
+                      <i style={{ left: `${p50Percent}%` }} />
+                    </div>
+                    <dl>
+                      <div><dt>P95</dt><dd>{formatMs(model.p95_transcription_ms)}</dd></div>
+                      <div><dt>Accuracy</dt><dd>{model.word_error_rate == null ? "Needs labels" : `${formatRate(model.word_error_rate)} WER`}</dd></div>
+                    </dl>
+                  </article>
+                );
+              })}
+            </div>
           </>
         )}
       </section>

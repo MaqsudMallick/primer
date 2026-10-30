@@ -1,6 +1,6 @@
 # Voice agent starter
 
-This project records one browser audio turn and transcribes it with local Whisper.
+This project records one browser audio turn, transcribes it with local Whisper, and speaks the transcript.
 
 ## Run both applications with Docker
 
@@ -21,6 +21,8 @@ Open `http://localhost:5173`. The API runs at `http://localhost:8001`.
 
 The first build compiles `whisper.cpp`. Later builds use the Docker build cache.
 
+React and FastAPI reload when their source files change. Rebuild the containers only after a dependency, lock file, or Dockerfile changes.
+
 Stop both applications with `docker compose down`.
 
 ## Structure
@@ -30,6 +32,23 @@ apps/
   web/  React and Vite
   api/  FastAPI and whisper.cpp
 ```
+
+## Prototype decisions
+
+### Browser text-to-speech
+
+The first echo loop uses the browser `speechSynthesis` API. This choice keeps the prototype free and avoids a TTS service or model.
+
+Do not treat browser speech synthesis as the production TTS design. It has these limits:
+
+- The available voices depend on the browser and operating system.
+- Voice quality and behavior are not consistent across devices.
+- The application cannot access or stream the generated audio data.
+- The backend cannot store complete TTS spans or audio metrics.
+- Interruption and playback controls are limited.
+- Some browser voices can require network access.
+
+Replace browser speech synthesis with a dedicated TTS model or service when the product needs a consistent voice, streaming audio, interruption support, or complete observability.
 
 ## Run the API
 

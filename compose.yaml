@@ -7,7 +7,11 @@ services:
       RUNS_DB_PATH: /app/data/runs.db
     ports:
       - "8001:8001"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     volumes:
+      - type: bind
+        source: ./apps/api/app
+        target: /app/app
       - type: bind
         source: ./apps/api/models/ggml-base.en.bin
         target: /app/models/ggml-base.en.bin
@@ -25,13 +29,20 @@ services:
   web:
     build:
       context: ./apps/web
+      target: build
       args:
         VITE_API_URL: http://localhost:8001
         VITE_WHISPER_MODEL: small.en
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
     depends_on:
       - api
     ports:
-      - "5173:80"
+      - "5173:5173"
+    volumes:
+      - type: bind
+        source: ./apps/web
+        target: /app
+      - /app/node_modules
 
 volumes:
   runs-data:
