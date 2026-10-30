@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { buildLatencyStages } from "./metrics.js";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8001";
 
 function App() {
@@ -74,6 +76,7 @@ function App() {
   const isRecording = state.kind === "recording";
   const isTranscribing = state.kind === "transcribing";
   const status = isRecording ? "Listening" : isTranscribing ? "Transcribing" : "Ready";
+  const latencyStages = state.kind === "success" ? buildLatencyStages(state.metrics) : [];
 
   return (
     <main>
@@ -116,14 +119,31 @@ function App() {
           {state.kind === "success" ? state.text || "No speech was detected." : state.kind === "error" ? state.message : "Your transcript will appear here."}
         </p>
         {state.kind === "success" && (
-          <dl className="metrics" aria-label="Turn metrics">
-            <div><dt>Recording</dt><dd>{state.metrics.recording_ms} ms</dd></div>
-            <div><dt>Request read</dt><dd>{state.metrics.request_read_ms} ms</dd></div>
-            <div><dt>Conversion</dt><dd>{state.metrics.conversion_ms} ms</dd></div>
-            <div><dt>Whisper</dt><dd>{state.metrics.transcription_ms} ms</dd></div>
-            <div><dt>Backend total</dt><dd>{state.metrics.total_ms} ms</dd></div>
-            <div><dt>Round trip</dt><dd>{state.metrics.roundTripMs} ms</dd></div>
-          </dl>
+          <div className="metrics" aria-label="Latency breakdown">
+            <div className="metrics-summary">
+              <div><span>Recording</span><strong>{state.metrics.recording_ms} ms</strong></div>
+              <div><span>After stop</span><strong>{state.metrics.roundTripMs} ms</strong></div>
+              <div><span>Backend</span><strong>{state.metrics.total_ms} ms</strong></div>
+            </div>
+            <div className="breakdown-heading">
+              <p>AFTER-STOP LATENCY</p>
+              <small>Longer bar means more time</small>
+            </div>
+            <ol className="breakdown">
+              {latencyStages.map((stage) => (
+                <li key={stage.key}>
+                  <div>
+                    <span>{stage.label}</span>
+                    {stage.isBottleneck && <em>Bottleneck</em>}
+                    <strong>{stage.ms} ms</strong>
+                  </div>
+                  <span className="track" aria-hidden="true">
+                    <span style={{ width: `${stage.percent}%` }} />
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
         )}
       </section>
     </main>

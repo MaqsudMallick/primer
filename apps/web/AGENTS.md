@@ -26,6 +26,7 @@ Run these commands from `apps/web/`:
 
 ```sh
 npm run lint
+npm test
 npm run build
 ```
 

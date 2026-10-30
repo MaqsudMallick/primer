@@ -55,4 +55,6 @@ Each successful event includes:
 - Media type
 - Model and execution mode
 
-The browser shows the same timing stages and its total request round-trip time. Use the request ID to correlate browser and API events.
+The browser shows an after-stop latency breakdown. It marks the longest stage as the bottleneck. The recording duration is separate because the user controls it.
+
+The application does not use a telemetry database. The API writes each result to standard output. Railway captures this output after deployment. Use the request ID to correlate the browser result and the API event.
